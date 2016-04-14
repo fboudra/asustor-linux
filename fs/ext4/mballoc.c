@@ -2474,7 +2474,6 @@ int ext4_mb_init(struct super_block *sb, int needs_recovery)
 	if (sbi->s_proc)
 		proc_create_data("mb_groups", S_IRUGO, sbi->s_proc,
 				 &ext4_mb_seq_groups_fops, sb);
-
 	return 0;
 
 out_free_locality_groups:

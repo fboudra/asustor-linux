@@ -42,6 +42,7 @@
 
 #include <trace/events/scsi.h>
 
+
 static void scsi_eh_done(struct scsi_cmnd *scmd);
 
 #define SENSE_TIMEOUT		(10*HZ)
@@ -1857,7 +1858,6 @@ int scsi_error_handler(void *data)
 						shost->host_no));
 			continue;
 		}
-
 		if (shost->transportt->eh_strategy_handler)
 			shost->transportt->eh_strategy_handler(shost);
 		else

@@ -12,6 +12,15 @@
  *     - JMicron (hardware and technical support)
  */
 
+
+/******************************************************************
+ 
+ Includes Intel Corporation's changes/modifications dated: 03/2013.
+ Changed/modified portions - Copyright(c) 2013, Intel Corporation. 
+
+******************************************************************/
+
+
 #include <linux/delay.h>
 #include <linux/highmem.h>
 #include <linux/module.h>
@@ -25,6 +34,12 @@
 #include <linux/gpio.h>
 #include <linux/pm_runtime.h>
 #include <linux/mmc/sdhci-pci-data.h>
+#if defined(CONFIG_ARCH_GEN3) && defined(CONFIG_HW_MUTEXES)
+#include <linux/hw_mutex.h>
+#if defined(CONFIG_CE_MAILBOX)
+#include <linux/ce_mailbox.h>
+#endif
+#endif
 
 #include "sdhci.h"
 
@@ -1001,6 +1016,11 @@ static int sdhci_pci_suspend(struct device *dev)
 	if (!chip)
 		return 0;
 
+#ifdef CONFIG_ARCH_GEN3
+	if (chip->quirks2 & SDHCI_QUIRK_NO_SUSPEND)
+		return 0;
+#endif
+
 	for (i = 0; i < chip->num_slots; i++) {
 		slot = chip->slots[i];
 		if (!slot)
@@ -1056,6 +1076,10 @@ static int sdhci_pci_resume(struct device *dev)
 	if (!chip)
 		return 0;
 
+#ifdef CONFIG_ARCH_GEN3
+	if (chip->quirks2 & SDHCI_QUIRK_NO_SUSPEND)
+		return 0;
+#endif
 	pci_set_power_state(pdev, PCI_D0);
 	pci_restore_state(pdev);
 	ret = pci_enable_device(pdev);
@@ -1189,6 +1213,12 @@ static struct sdhci_pci_slot * __devinit sdhci_pci_probe_slot(
 {
 	struct sdhci_pci_slot *slot;
 	struct sdhci_host *host;
+#ifdef CONFIG_ARCH_GEN3	
+	struct pci_dev *tmp_dev = NULL;
+	int tmp;
+	int id;
+#endif
+
 	int ret, bar = first_bar + slotno;
 
 	if (!(pci_resource_flags(pdev, bar) & IORESOURCE_MEM)) {
@@ -1276,10 +1306,65 @@ static struct sdhci_pci_slot * __devinit sdhci_pci_probe_slot(
 			slot->rst_n_gpio = -EINVAL;
 		}
 	}
-
 	host->mmc->pm_caps = MMC_PM_KEEP_POWER | MMC_PM_WAKE_SDIO_IRQ;
 
+#ifdef CONFIG_ARCH_GEN3
+	intelce_get_soc_info(&id, NULL);
+	if (id != CE2600_SOC_DEVICE_ID) {
+		if(pdev->revision >= 0x2)
+			host->flags |= SDHCI_SUPPORT_DDR;
+	}
+#endif
+#if defined(CONFIG_ARCH_GEN3) && defined(CONFIG_HW_MUTEXES)
+	/* If there's HW Mutex controller exist, then we'll need to use HW Mutex to make sure exclusive controller access from different processors */
+	tmp_dev = pci_get_device(0x8086, HW_MUTEX_DEV_ID,NULL);
+	if (tmp_dev)
+	{	
+		host->flags |= SDHCI_SUPPORT_HW_MUTEX;
+		pci_dev_put(tmp_dev);
+	}	
+
+#if defined(CONFIG_CE_MAILBOX)
+	if (sdhci_host_has_HWMTX(host)) {	
+		/* Wait till ARM doesn't use eMMC in legacy mode */
+		printk(KERN_INFO "waiting for eMMC legacy mode exit notification from NPCPU ... ...\n");
+		for (;;) {
+			tmp = npcpu_appcpu_mbx_receive_event_notification(NPCPU_EVENT_EMMC_INIT_EXIT,NULL);
+			if (tmp) {
+				dev_err(&pdev->dev, "can not receive legacy mode exit notification from NPCPU, retrying ... \n");
+			}
+			else 
+				break;
+		}
+		tmp = npcpu_appcpu_mbx_send_ack(NPCPU_EVENT_EMMC_INIT_EXIT);
+		if (tmp) {
+			dev_err(&pdev->dev, "can not send NPCPU_EVENT_EMMC_INIT_EXIT ACK message to NPCPU \n");
+		}	
+	}
+#endif /*CONFIG_CE_MAILBOX */
+	LOCK_EMMC_HW_MUTEX(host->mmc);
 	ret = sdhci_add_host(host);
+	UNLOCK_EMMC_HW_MUTEX(host->mmc);
+
+#if defined(CONFIG_CE_MAILBOX)
+	if (sdhci_host_has_HWMTX(host)) {
+		if (!ret) {
+			for (;;) {
+				printk(KERN_INFO "waiting for eMMC advanced mode exit notification from NPCPU ... ...\n");
+				tmp = npcpu_appcpu_mbx_receive_event_notification(NPCPU_EVENT_EMMC_ADVANCE_INIT_EXIT,NULL);
+				if (tmp) {
+					dev_err(&pdev->dev, "can not receive advanced mode exit notification from NPCPU, retrying ... \n");
+				}
+				else
+					break;
+			}
+		}
+	}
+#endif /*CONFIG_CE_MAILBOX */
+
+#else
+	ret = sdhci_add_host(host);
+#endif
 	if (ret)
 		goto remove;
 
@@ -1361,6 +1446,11 @@ static int __devinit sdhci_pci_probe(struct pci_dev *pdev,
 
 	u8 slots, first_bar;
 	int ret, i;
+#ifdef CONFIG_ARCH_GEN3
+	unsigned int id;
+
+	intelce_get_soc_info(&id, NULL);
+#endif
 
 	BUG_ON(pdev == NULL);
 	BUG_ON(ent == NULL);
@@ -1408,7 +1498,10 @@ static int __devinit sdhci_pci_probe(struct pci_dev *pdev,
 		chip->allow_runtime_pm = chip->fixes->allow_runtime_pm;
 	}
 	chip->num_slots = slots;
-
+#ifdef CONFIG_ARCH_GEN3
+	if (CE2600_SOC_DEVICE_ID == id)
+		chip->quirks2 |= SDHCI_QUIRK_NO_SUSPEND;
+#endif
 	pci_set_drvdata(pdev, chip);
 
 	if (chip->fixes && chip->fixes->probe) {

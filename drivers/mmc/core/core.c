@@ -10,6 +10,12 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  */
+/******************************************************************
+
+ Includes Intel Corporation's changes/modifications dated: 03/2013.
+ Changed/modified portions - Copyright(c) 2013, Intel Corporation.
+
+ ******************************************************************/
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
@@ -40,7 +46,13 @@
 #include "mmc_ops.h"
 #include "sd_ops.h"
 #include "sdio_ops.h"
-
+#if defined(CONFIG_ARCH_GEN3) && defined(CONFIG_HW_MUTEXES)
+#include <linux/hw_mutex.h>
+#include <linux/mmc/sdhci.h>
+#if defined(CONFIG_CE_MAILBOX)
+#include <linux/ce_mailbox.h>
+#endif
+#endif
 static struct workqueue_struct *workqueue;
 
 /*
@@ -641,6 +653,18 @@ int __mmc_claim_host(struct mmc_host *host, atomic_t *abort)
 		wake_up(&host->wq);
 	spin_unlock_irqrestore(&host->lock, flags);
 	remove_wait_queue(&host->wq, &wait);
+#if defined(CONFIG_ARCH_GEN3) && defined(CONFIG_HW_MUTEXES)
+	spin_lock_irqsave(&host->lock, flags);
+	/* 
+	* mmc_claim_host is the start point of a set of MMC operations.
+	* Lock HW Mutex at the first time when a task owned the controller. 
+	*/
+	if ((host->claimer == current) && (host->claim_cnt == 1)) {
+		spin_unlock_irqrestore(&host->lock, flags);
+		LOCK_EMMC_HW_MUTEX(host);
+	} else
+		spin_unlock_irqrestore(&host->lock, flags);
+#endif
 	if (host->ops->enable && !stop && host->claim_cnt == 1)
 		host->ops->enable(host);
 	return stop;
@@ -667,6 +691,15 @@ int mmc_try_claim_host(struct mmc_host *host)
 		claimed_host = 1;
 	}
 	spin_unlock_irqrestore(&host->lock, flags);
+#if defined(CONFIG_ARCH_GEN3) && defined(CONFIG_HW_MUTEXES)
+	spin_lock_irqsave(&host->lock, flags);
+	/* Lock HW Mutex at the first time when a task owned the controller. */
+	if ((host->claimer == current) && (host->claim_cnt == 1)) {
+		spin_unlock_irqrestore(&host->lock, flags);
+		LOCK_EMMC_HW_MUTEX(host);
+	} else
+		spin_unlock_irqrestore(&host->lock, flags);
+#endif
 	if (host->ops->enable && claimed_host && host->claim_cnt == 1)
 		host->ops->enable(host);
 	return claimed_host;
@@ -697,6 +730,13 @@ void mmc_release_host(struct mmc_host *host)
 		host->claimed = 0;
 		host->claimer = NULL;
 		spin_unlock_irqrestore(&host->lock, flags);
+#if defined(CONFIG_ARCH_GEN3) && defined(CONFIG_HW_MUTEXES)
+		/* 
+		* mmc_release_host is the end point of a set of MMC operations.
+		* Unlock the HW Mutex when a task doesn't own the controller 
+		*/
+		UNLOCK_EMMC_HW_MUTEX(host);
+#endif	
 		wake_up(&host->wq);
 	}
 }
@@ -2008,6 +2048,9 @@ void mmc_rescan(struct work_struct *work)
 	static const unsigned freqs[] = { 400000, 300000, 200000, 100000 };
 	struct mmc_host *host =
 		container_of(work, struct mmc_host, detect.work);
+#if defined(CONFIG_ARCH_GEN3) && defined(CONFIG_HW_MUTEXES)	
+	struct sdhci_host *shost = (struct sdhci_host *)host->private;
+#endif
 	int i;
 
 	if (host->rescan_disable)
@@ -2055,8 +2098,17 @@ void mmc_rescan(struct work_struct *work)
 			break;
 	}
 	mmc_release_host(host);
-
- out:
+#if defined(CONFIG_ARCH_GEN3) && defined(CONFIG_HW_MUTEXES)	
+#if defined(CONFIG_CE_MAILBOX)
+	if (sdhci_host_has_HWMTX(shost)) {	
+		/* eMMC advanced mode initializatin done, notify ARM */
+		i = npcpu_appcpu_mbx_send_notification(APPCPU_EVENT_EMMC_ADVANCE_EXIT,NULL);
+		if (i) 
+			printk(KERN_ERR "can not send advanced mode finish notification to NPCPU \n");
+	}
+#endif	
+#endif	
+out:
 	if (host->caps & MMC_CAP_NEEDS_POLL)
 		mmc_schedule_delayed_work(&host->detect, HZ);
 }
@@ -2279,6 +2331,10 @@ int mmc_suspend_host(struct mmc_host *host)
 	if (err)
 		goto out;
 
+#ifdef CONFIG_ARCH_GEN3 
+	if (((struct sdhci_host *)mmc_priv(host))->quirks2 & SDHCI_QUIRK_NO_SUSPEND)
+		return err;
+#endif
 	mmc_bus_get(host);
 	if (host->bus_ops && !host->bus_dead) {
 
@@ -2321,6 +2377,10 @@ int mmc_resume_host(struct mmc_host *host)
 {
 	int err = 0;
 
+#ifdef CONFIG_ARCH_GEN3	
+	if (((struct sdhci_host *)mmc_priv(host))->quirks2 & SDHCI_QUIRK_NO_SUSPEND)
+		return err;
+#endif
 	mmc_bus_get(host);
 	if (host->bus_ops && !host->bus_dead) {
 		if (!mmc_card_keep_power(host)) {
@@ -2355,6 +2415,11 @@ int mmc_resume_host(struct mmc_host *host)
 }
 EXPORT_SYMBOL(mmc_resume_host);
 
+#ifdef CONFIG_ARCH_GEN3
+extern struct mutex mmc_ioctl_mutex;
+extern int mmc_in_suspend;
+#endif
+
 /* Do the card removal on suspend if card is assumed removeable
  * Do that in pm notifier while userspace isn't yet frozen, so we will be able
    to sync the card.
@@ -2366,11 +2431,17 @@ int mmc_pm_notify(struct notifier_block *notify_block,
 		notify_block, struct mmc_host, pm_notify);
 	unsigned long flags;
 
+#ifdef CONFIG_ARCH_GEN3
+	mutex_lock(&mmc_ioctl_mutex);
+#endif
 
 	switch (mode) {
 	case PM_HIBERNATION_PREPARE:
 	case PM_SUSPEND_PREPARE:
 
+#ifdef CONFIG_ARCH_GEN3		
+		mmc_in_suspend = 1;
+#endif
 		spin_lock_irqsave(&host->lock, flags);
 		host->rescan_disable = 1;
 		host->power_notify_type = MMC_HOST_PW_NOTIFY_SHORT;
@@ -2395,6 +2466,9 @@ int mmc_pm_notify(struct notifier_block *notify_block,
 	case PM_POST_HIBERNATION:
 	case PM_POST_RESTORE:
 
+#ifdef CONFIG_ARCH_GEN3		
+		mmc_in_suspend = 0;
+#endif
 		spin_lock_irqsave(&host->lock, flags);
 		host->rescan_disable = 0;
 		host->power_notify_type = MMC_HOST_PW_NOTIFY_LONG;
@@ -2402,6 +2476,10 @@ int mmc_pm_notify(struct notifier_block *notify_block,
 		mmc_detect_change(host, 0);
 
 	}
+
+#ifdef CONFIG_ARCH_GEN3
+	mutex_unlock(&mmc_ioctl_mutex);
+#endif
 
 	return 0;
 }

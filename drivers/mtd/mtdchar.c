@@ -290,13 +290,11 @@ static ssize_t mtdchar_write(struct file *file, const char __user *buf, size_t c
 	int len;
 
 	pr_debug("MTD_write\n");
-
 	if (*ppos == mtd->size)
 		return -ENOSPC;
 
 	if (*ppos + count > mtd->size)
 		count = mtd->size - *ppos;
-
 	if (!count)
 		return 0;
 
@@ -687,7 +685,6 @@ static int mtdchar_ioctl(struct file *file, u_int cmd, u_long arg)
 	case MEMERASE64:
 	{
 		struct erase_info *erase;
-
 		if(!(file->f_mode & FMODE_WRITE))
 			return -EPERM;
 
@@ -755,7 +752,6 @@ static int mtdchar_ioctl(struct file *file, u_int cmd, u_long arg)
 	{
 		struct mtd_oob_buf buf;
 		struct mtd_oob_buf __user *buf_user = argp;
-
 		/* NOTE: writes return length to buf_user->length */
 		if (copy_from_user(&buf, argp, sizeof(buf)))
 			ret = -EFAULT;
@@ -783,7 +779,6 @@ static int mtdchar_ioctl(struct file *file, u_int cmd, u_long arg)
 	{
 		struct mtd_oob_buf64 buf;
 		struct mtd_oob_buf64 __user *buf_user = argp;
-
 		if (copy_from_user(&buf, argp, sizeof(buf)))
 			ret = -EFAULT;
 		else
@@ -881,7 +876,6 @@ static int mtdchar_ioctl(struct file *file, u_int cmd, u_long arg)
 	case MEMSETBADBLOCK:
 	{
 		loff_t offs;
-
 		if (copy_from_user(&offs, argp, sizeof(loff_t)))
 			return -EFAULT;
 		return mtd_block_markbad(mtd, offs);
@@ -1070,7 +1064,6 @@ static long mtdchar_compat_ioctl(struct file *file, unsigned int cmd,
 	{
 		struct mtd_oob_buf32 buf;
 		struct mtd_oob_buf32 __user *buf_user = argp;
-
 		/* NOTE: writes return length to buf->start */
 		if (copy_from_user(&buf, argp, sizeof(buf)))
 			ret = -EFAULT;

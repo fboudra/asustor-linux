@@ -51,6 +51,7 @@ obj-$(CONFIG_GENERIC_ACL)	+= generic_acl.o
 
 obj-$(CONFIG_FHANDLE)		+= fhandle.o
 
+
 obj-y				+= quota/
 
 obj-$(CONFIG_PROC_FS)		+= proc/

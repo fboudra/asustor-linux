@@ -21,6 +21,13 @@
  *          15 May 2002
  */
 
+/******************************************************************
+ 
+ Includes Intel Corporation's changes/modifications dated: 03/2013.
+ Changed/modified portions - Copyright(c) 2013, Intel Corporation. 
+
+******************************************************************/
+
 #ifndef LINUX_MMC_MMC_H
 #define LINUX_MMC_MMC_H
 
@@ -266,6 +273,12 @@ struct _mmc_csd {
 #define CSD_SPEC_VER_2      2           /* Implements system specification 2.0 - 2.2 */
 #define CSD_SPEC_VER_3      3           /* Implements system specification 3.1 - 3.2 - 3.31 */
 #define CSD_SPEC_VER_4      4           /* Implements system specification 4.0 - 4.1 */
+
+#ifdef CONFIG_ARCH_GEN3
+#define EXT_CSD_BOOT_SIZE_MULT	226	/* RO */
+#define EXT_CSD_BOOT_CONFIG	179	/* R/W */
+#define EXT_CSD_GP_SIZE_MULT	143	/* R/W */
+#endif
 
 /*
  * EXT_CSD fields

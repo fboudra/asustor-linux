@@ -58,10 +58,10 @@
 #include "raid0.h"
 #include "bitmap.h"
 
+
 /*
  * Stripe cache
  */
-
 #define NR_STRIPES		256
 #define STRIPE_SIZE		PAGE_SIZE
 #define STRIPE_SHIFT		(PAGE_SHIFT - 9)
@@ -4481,7 +4481,6 @@ static void raid5d(struct mddev *mddev)
 	pr_debug("+++ raid5d active\n");
 
 	md_check_recovery(mddev);
-
 	blk_start_plug(&plug);
 	handled = 0;
 	spin_lock_irq(&conf->device_lock);
@@ -5050,7 +5049,6 @@ static int run(struct mddev *mddev)
 
 	if (IS_ERR(conf))
 		return PTR_ERR(conf);
-
 	mddev->thread = conf->thread;
 	conf->thread = NULL;
 	mddev->private = conf;
@@ -5200,7 +5198,6 @@ static int run(struct mddev *mddev)
 			disk_stack_limits(mddev->gendisk, rdev->bdev,
 					  rdev->data_offset << 9);
 	}
-
 	return 0;
 abort:
 	md_unregister_thread(&mddev->thread);
@@ -5214,7 +5211,6 @@ abort:
 static int stop(struct mddev *mddev)
 {
 	struct r5conf *conf = mddev->private;
-
 	md_unregister_thread(&mddev->thread);
 	if (mddev->queue)
 		mddev->queue->backing_dev_info.congested_fn = NULL;
@@ -5313,7 +5309,6 @@ static int raid5_remove_disk(struct mddev *mddev, struct md_rdev *rdev)
 	int number = rdev->raid_disk;
 	struct md_rdev **rdevp;
 	struct disk_info *p = conf->disks + number;
-
 	print_raid5_conf(conf);
 	if (rdev == p->rdev)
 		rdevp = &p->rdev;
@@ -5321,7 +5316,6 @@ static int raid5_remove_disk(struct mddev *mddev, struct md_rdev *rdev)
 		rdevp = &p->replacement;
 	else
 		return 0;
-
 	if (number >= conf->raid_disks &&
 	    conf->reshape_progress == MaxSector)
 		clear_bit(In_sync, &rdev->flags);
@@ -5643,6 +5637,7 @@ static void end_reshape(struct r5conf *conf)
 		}
 	}
 }
+
 
 /* This is called from the raid5d thread with mddev_lock held.
  * It makes config changes to the device.

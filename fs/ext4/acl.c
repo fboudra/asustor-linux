@@ -131,8 +131,13 @@ fail:
  *
  * inode->i_mutex: don't care
  */
+#ifdef ASUSTOR_PATCH_ASACL
+/* Patch purpose: ASACL */
+struct posix_acl *ext4_get_posix_acl(struct inode *inode, int type)
+#else /* ASUSTOR_PATCH_ASACL */
 struct posix_acl *
 ext4_get_acl(struct inode *inode, int type)
+#endif /* ASUSTOR_PATCH_ASACL */
 {
 	int name_index;
 	char *value = NULL;
@@ -141,7 +146,7 @@ ext4_get_acl(struct inode *inode, int type)
 
 	if (!test_opt(inode->i_sb, POSIX_ACL))
 		return NULL;
-
+		
 	acl = get_cached_acl(inode, type);
 	if (acl != ACL_NOT_CACHED)
 		return acl;
@@ -248,15 +253,29 @@ ext4_init_acl(handle_t *handle, struct inode *inode, struct inode *dir)
 	int error = 0;
 
 	if (!S_ISLNK(inode->i_mode)) {
+
+#ifdef ASUSTOR_PATCH_ASACL
+		/* Patch purpose: ASACL */
+		if (IS_POSIXACL(inode))
+		{
+			acl = ext4_get_posix_acl(dir, ACL_TYPE_DEFAULT);
+			if (IS_ERR(acl))
+				return PTR_ERR(acl);
+		}
+#else /* ASUSTOR_PATCH_ASACL */
 		if (test_opt(dir->i_sb, POSIX_ACL)) {
 			acl = ext4_get_acl(dir, ACL_TYPE_DEFAULT);
 			if (IS_ERR(acl))
 				return PTR_ERR(acl);
 		}
+#endif /* ASUSTOR_PATCH_ASACL */
+
 		if (!acl)
 			inode->i_mode &= ~current_umask();
 	}
-	if (test_opt(inode->i_sb, POSIX_ACL) && acl) {
+
+	if (test_opt(inode->i_sb, POSIX_ACL) && acl)
+	{
 		if (S_ISDIR(inode->i_mode)) {
 			error = ext4_set_acl(handle, inode,
 					     ACL_TYPE_DEFAULT, acl);
@@ -302,9 +321,23 @@ ext4_acl_chmod(struct inode *inode)
 
 	if (S_ISLNK(inode->i_mode))
 		return -EOPNOTSUPP;
+
+#ifdef ASUSTOR_PATCH_ASACL
+	/* Patch purpose: ASACL */
+
+	if (!IS_POSIXACL(inode))
+		return 0;
+
+	acl = ext4_get_posix_acl(inode, ACL_TYPE_ACCESS);
+
+#else /* ASUSTOR_PATCH_ASACL */
+
 	if (!test_opt(inode->i_sb, POSIX_ACL))
 		return 0;
 	acl = ext4_get_acl(inode, ACL_TYPE_ACCESS);
+
+#endif /* ASUSTOR_PATCH_ASACL */
+
 	if (IS_ERR(acl) || !acl)
 		return PTR_ERR(acl);
 	error = posix_acl_chmod(&acl, GFP_KERNEL, inode->i_mode);
@@ -339,6 +372,7 @@ ext4_xattr_list_acl_access(struct dentry *dentry, char *list, size_t list_len,
 
 	if (!test_opt(dentry->d_sb, POSIX_ACL))
 		return 0;
+
 	if (list && size <= list_len)
 		memcpy(list, POSIX_ACL_XATTR_ACCESS, size);
 	return size;
@@ -352,6 +386,7 @@ ext4_xattr_list_acl_default(struct dentry *dentry, char *list, size_t list_len,
 
 	if (!test_opt(dentry->d_sb, POSIX_ACL))
 		return 0;
+
 	if (list && size <= list_len)
 		memcpy(list, POSIX_ACL_XATTR_DEFAULT, size);
 	return size;
@@ -366,10 +401,24 @@ ext4_xattr_get_acl(struct dentry *dentry, const char *name, void *buffer,
 
 	if (strcmp(name, "") != 0)
 		return -EINVAL;
+
+#ifdef ASUSTOR_PATCH_ASACL
+	/* Patch purpose: ASACL */
+
+	if (!IS_POSIXACL(dentry->d_inode))
+		return -EOPNOTSUPP;
+
+	acl = ext4_get_posix_acl(dentry->d_inode, type);
+
+#else /* ASUSTOR_PATCH_ASACL */
+
 	if (!test_opt(dentry->d_sb, POSIX_ACL))
 		return -EOPNOTSUPP;
 
 	acl = ext4_get_acl(dentry->d_inode, type);
+
+#endif /* ASUSTOR_PATCH_ASACL */
+
 	if (IS_ERR(acl))
 		return PTR_ERR(acl);
 	if (acl == NULL)
@@ -391,8 +440,10 @@ ext4_xattr_set_acl(struct dentry *dentry, const char *name, const void *value,
 
 	if (strcmp(name, "") != 0)
 		return -EINVAL;
+
 	if (!test_opt(inode->i_sb, POSIX_ACL))
 		return -EOPNOTSUPP;
+
 	if (!inode_owner_or_capable(inode))
 		return -EPERM;
 

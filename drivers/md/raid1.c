@@ -41,6 +41,7 @@
 #include "raid1.h"
 #include "bitmap.h"
 
+
 /*
  * Number of guaranteed r1bios in case of extreme VM load:
  */
@@ -2732,7 +2733,6 @@ static int stop(struct mddev *mddev)
 {
 	struct r1conf *conf = mddev->private;
 	struct bitmap *bitmap = mddev->bitmap;
-
 	/* wait for behind writes to complete */
 	if (bitmap && atomic_read(&bitmap->behind_writes) > 0) {
 		printk(KERN_INFO "md/raid1:%s: behind writes in progress - waiting to stop.\n",

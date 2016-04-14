@@ -10,6 +10,16 @@
  * the Free Software Foundation; either version 2 of the License, or (at
  * your option) any later version.
  */
+
+
+/******************************************************************
+ 
+ Includes Intel Corporation's changes/modifications dated: 03/2013.
+ Changed/modified portions - Copyright(c) 2013, Intel Corporation. 
+
+******************************************************************/
+
+
 #ifndef __SDHCI_HW_H
 #define __SDHCI_HW_H
 

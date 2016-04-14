@@ -1,3 +1,11 @@
+/******************************************************************
+ 
+ Includes Intel Corporation's changes/modifications dated: 03/2013.
+ Changed/modified portions - Copyright(c) 2013, Intel Corporation. 
+
+******************************************************************/
+
+
 #ifndef MMC_QUEUE_H
 #define MMC_QUEUE_H
 
@@ -30,6 +38,10 @@ struct mmc_queue {
 	int			(*issue_fn)(struct mmc_queue *, struct request *);
 	void			*data;
 	struct request_queue	*queue;
+#ifdef CONFIG_ARCH_GEN3
+	char                    *bp_buf;
+	struct scatterlist      *bp_sg;
+#endif
 	struct mmc_queue_req	mqrq[2];
 	struct mmc_queue_req	*mqrq_cur;
 	struct mmc_queue_req	*mqrq_prev;

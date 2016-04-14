@@ -114,6 +114,10 @@
 #include <asm/alternative.h>
 #include <asm/prom.h>
 
+#ifdef CONFIG_ARCH_GEN3
+extern int set_gmac_phy_mode(uint32_t phy_mode);
+#endif
+
 /*
  * end_pfn only includes RAM, while max_pfn_mapped includes all e820 entries.
  * The direct mapping extends to max_pfn_mapped, so that we can directly access
@@ -452,6 +456,16 @@ static void __init parse_setup_data(void)
 		case SETUP_DTB:
 			add_dtb(pa_data);
 			break;
+#ifdef CONFIG_ARCH_GEN3			
+		case SETUP_BOARD_TYPE:
+			intelce_set_board_type(readl(data->data));
+			break;
+#ifdef CONFIG_E1000
+		case SETUP_GMAC_PHY_MODE:
+			set_gmac_phy_mode(readl(data->data));
+			break;
+#endif
+#endif			
 		default:
 			break;
 		}

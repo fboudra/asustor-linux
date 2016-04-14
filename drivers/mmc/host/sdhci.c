@@ -13,6 +13,15 @@
  *     - JMicron (hardware and technical support)
  */
 
+
+/******************************************************************
+ 
+ Includes Intel Corporation's changes/modifications dated: 03/2013.
+ Changed/modified portions - Copyright(c) 2013, Intel Corporation. 
+
+******************************************************************/
+
+
 #include <linux/delay.h>
 #include <linux/highmem.h>
 #include <linux/io.h>
@@ -29,6 +38,9 @@
 #include <linux/mmc/host.h>
 #include <linux/mmc/card.h>
 
+#if defined(CONFIG_ARCH_GEN3) && defined(CONFIG_HW_MUTEXES)
+#include <linux/hw_mutex.h>
+#endif
 #include "sdhci.h"
 
 #define DRIVER_NAME "sdhci"
@@ -681,8 +693,10 @@ static u8 sdhci_calc_timeout(struct sdhci_host *host, struct mmc_command *cmd)
 	}
 
 	if (count >= 0xF) {
+#ifndef CONFIG_ARCH_GEN3
 		pr_warning("%s: Too large timeout requested for CMD%d!\n",
 		       mmc_hostname(host->mmc), cmd->opcode);
+#endif
 		count = 0xE;
 	}
 
@@ -1324,7 +1338,9 @@ static void sdhci_do_set_ios(struct sdhci_host *host, struct mmc_ios *ios)
 	unsigned long flags;
 	int vdd_bit = -1;
 	u8 ctrl;
-
+#ifdef CONFIG_ARCH_GEN3
+	u16 ctrl2;
+#endif
 	spin_lock_irqsave(&host->lock, flags);
 
 	if (host->flags & SDHCI_DEVICE_DEAD) {
@@ -1370,10 +1386,14 @@ static void sdhci_do_set_ios(struct sdhci_host *host, struct mmc_ios *ios)
 		ctrl = sdhci_readb(host, SDHCI_HOST_CONTROL);
 		if (ios->bus_width == MMC_BUS_WIDTH_8) {
 			ctrl &= ~SDHCI_CTRL_4BITBUS;
+#ifndef CONFIG_ARCH_GEN3
 			if (host->version >= SDHCI_SPEC_300)
+#endif
 				ctrl |= SDHCI_CTRL_8BITBUS;
 		} else {
+#ifndef CONFIG_ARCH_GEN3
 			if (host->version >= SDHCI_SPEC_300)
+#endif
 				ctrl &= ~SDHCI_CTRL_8BITBUS;
 			if (ios->bus_width == MMC_BUS_WIDTH_4)
 				ctrl |= SDHCI_CTRL_4BITBUS;
@@ -1384,7 +1404,17 @@ static void sdhci_do_set_ios(struct sdhci_host *host, struct mmc_ios *ios)
 	}
 
 	ctrl = sdhci_readb(host, SDHCI_HOST_CONTROL);
-
+#ifdef CONFIG_ARCH_GEN3
+	ctrl2 = sdhci_readw(host, SDHCI_HOST_CONTROL2);
+	/* Select Bus Speed Mode for host */
+	ctrl2 &= ~SDHCI_CTRL_UHS_MASK;
+	if(ios->timing == MMC_TIMING_UHS_DDR50)
+		ctrl2 |= SDHCI_CTRL_UHS_DDR50;
+	else
+		ctrl2 |= SDHCI_CTRL_UHS_SDR12;
+	sdhci_writew(host, ctrl2, SDHCI_HOST_CONTROL2);
+#endif	
+	
 	if ((ios->timing == MMC_TIMING_SD_HS ||
 	     ios->timing == MMC_TIMING_MMC_HS)
 	    && !(host->quirks & SDHCI_QUIRK_NO_HISPD_BIT))
@@ -2279,6 +2309,21 @@ static irqreturn_t sdhci_irq(int irq, void *dev_id)
 	u32 intmask, unexpected = 0;
 	int cardint = 0, max_loops = 16;
 
+#if defined(CONFIG_ARCH_GEN3) && defined(CONFIG_HW_MUTEXES)
+		/* eMMC card interrupt can be classified to:
+		* 1, Insert/Remove interrupt
+		* 2, Data/Command Interrupt
+		* 3, Unexpected error interrupt
+		* Interrupt type of 1 & 3 won't happen in Intel CE2600 platform
+		* It's assumed that interrupt happens only when a task owns 
+		* HW Mutex
+		*/
+		if (host->flags & SDHCI_SUPPORT_HW_MUTEX) {
+			if (!EMMC_HW_MUTEX_IS_LOCKED(host->mmc)) 
+				return IRQ_NONE;
+		}
+#endif
+
 	spin_lock(&host->lock);
 
 	if (host->runtime_suspended) {
@@ -2396,6 +2441,10 @@ int sdhci_suspend_host(struct sdhci_host *host)
 	if (host->ops->platform_suspend)
 		host->ops->platform_suspend(host);
 
+#ifdef CONFIG_ARCH_GEN3	
+	if (host->quirks2 & SDHCI_QUIRK_NO_SUSPEND)
+	return 0;
+#endif	
 	sdhci_disable_card_detection(host);
 
 	/* Disable tuning since we are suspending */
@@ -2430,6 +2479,10 @@ int sdhci_resume_host(struct sdhci_host *host)
 {
 	int ret;
 
+#ifdef CONFIG_ARCH_GEN3 
+	if (host->quirks2 & SDHCI_QUIRK_NO_SUSPEND)
+	return 0;
+#endif
 	if (host->flags & (SDHCI_USE_SDMA | SDHCI_USE_ADMA)) {
 		if (host->ops->enable_dma)
 			host->ops->enable_dma(host);
@@ -2626,6 +2679,11 @@ int sdhci_add_host(struct sdhci_host *host)
 	caps[1] = (host->version >= SDHCI_SPEC_300) ?
 		sdhci_readl(host, SDHCI_CAPABILITIES_1) : 0;
 
+#ifdef CONFIG_ARCH_GEN3
+	if(host->flags & SDHCI_SUPPORT_HW_MUTEX)
+		caps[0] |= SDHCI_CAN_VDD_330;
+#endif
+
 	if (host->quirks & SDHCI_QUIRK_FORCE_DMA)
 		host->flags |= SDHCI_USE_SDMA;
 	else if (!(caps[0] & SDHCI_CAN_DO_SDMA))
@@ -2782,10 +2840,19 @@ int sdhci_add_host(struct sdhci_host *host)
 	 * won't assume 8-bit width for hosts without that CAP.
 	 */
 	if (!(host->quirks & SDHCI_QUIRK_FORCE_1_BIT_DATA))
+#ifndef CONFIG_ARCH_GEN3
 		mmc->caps |= MMC_CAP_4_BIT_DATA;
+#else
+		mmc->caps |= MMC_CAP_4_BIT_DATA | MMC_CAP_8_BIT_DATA;
+#endif
 
 	if (caps[0] & SDHCI_CAN_DO_HISPD)
 		mmc->caps |= MMC_CAP_SD_HIGHSPEED | MMC_CAP_MMC_HIGHSPEED;
+
+#ifdef CONFIG_ARCH_GEN3 
+	if(host->flags & SDHCI_SUPPORT_DDR)
+		mmc->caps |= MMC_CAP_1_8V_DDR | MMC_CAP_UHS_DDR50;
+#endif
 
 	if ((host->quirks & SDHCI_QUIRK_BROKEN_CARD_DETECTION) &&
 	    mmc_card_is_removable(mmc))

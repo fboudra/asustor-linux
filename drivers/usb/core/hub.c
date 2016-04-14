@@ -410,6 +410,11 @@ void usb_kick_khubd(struct usb_device *hdev)
 {
 	struct usb_hub *hub = hdev_to_hub(hdev);
 
+#if defined(CONFIG_USB_ETRON_HUB)
+	if (usb_is_etron_hcd(hdev))
+		return ethub_usb_kick_kethubd(hdev);
+#endif
+
 	if (hub)
 		kick_khubd(hub);
 }
@@ -426,6 +431,11 @@ void usb_wakeup_notification(struct usb_device *hdev,
 		unsigned int portnum)
 {
 	struct usb_hub *hub;
+
+#if defined(CONFIG_USB_ETRON_HUB)
+	if (usb_is_etron_hcd(hdev))
+		return ethub_usb_wakeup_notification(hdev, portnum);
+#endif
 
 	if (!hdev)
 		return;
@@ -756,6 +766,11 @@ int usb_remove_device(struct usb_device *udev)
 {
 	struct usb_hub *hub;
 	struct usb_interface *intf;
+
+#if defined(CONFIG_USB_ETRON_HUB)
+	if (usb_is_etron_hcd(udev))
+		return ethub_usb_remove_device(udev);
+#endif
 
 	if (!udev->parent)	/* Can't remove a root hub */
 		return -EINVAL;
@@ -1386,6 +1401,11 @@ static int hub_probe(struct usb_interface *intf, const struct usb_device_id *id)
 	desc = intf->cur_altsetting;
 	hdev = interface_to_usbdev(intf);
 
+#if defined(CONFIG_USB_ETRON_HUB)
+	if (usb_is_etron_hcd(hdev))
+		return -ENODEV;
+#endif
+
 	/* Hubs have proper suspend/resume support. */
 	usb_enable_autosuspend(hdev);
 
@@ -1510,6 +1530,11 @@ int usb_hub_claim_port(struct usb_device *hdev, unsigned port1, void *owner)
 	int rc;
 	void **powner;
 
+#if defined(CONFIG_USB_ETRON_HUB)
+	if (usb_is_etron_hcd(hdev))
+		return ethub_usb_hub_claim_port(hdev, port1, owner);
+#endif
+
 	rc = find_port_owner(hdev, port1, &powner);
 	if (rc)
 		return rc;
@@ -1523,6 +1548,11 @@ int usb_hub_release_port(struct usb_device *hdev, unsigned port1, void *owner)
 {
 	int rc;
 	void **powner;
+
+#if defined(CONFIG_USB_ETRON_HUB)
+	if (usb_is_etron_hcd(hdev))
+		return ethub_usb_hub_release_port(hdev, port1, owner);
+#endif
 
 	rc = find_port_owner(hdev, port1, &powner);
 	if (rc)
@@ -1538,6 +1568,11 @@ void usb_hub_release_all_ports(struct usb_device *hdev, void *owner)
 	int n;
 	void **powner;
 
+#if defined(CONFIG_USB_ETRON_HUB)
+	if (usb_is_etron_hcd(hdev))
+		return ethub_usb_hub_release_all_ports(hdev, owner);
+#endif
+
 	n = find_port_owner(hdev, 1, &powner);
 	if (n == 0) {
 		for (; n < hdev->maxchild; (++n, ++powner)) {
@@ -1551,6 +1586,11 @@ void usb_hub_release_all_ports(struct usb_device *hdev, void *owner)
 bool usb_device_is_owned(struct usb_device *udev)
 {
 	struct usb_hub *hub;
+
+#if defined(CONFIG_USB_ETRON_HUB)
+	if (usb_is_etron_hcd(udev))
+		return ethub_usb_device_is_owned(udev);
+#endif
 
 	if (udev->state == USB_STATE_NOTATTACHED || !udev->parent)
 		return false;
@@ -1598,6 +1638,11 @@ void usb_set_device_state(struct usb_device *udev,
 {
 	unsigned long flags;
 	int wakeup = -1;
+
+#if defined(CONFIG_USB_ETRON_HUB)
+	if (usb_is_etron_hcd(udev))
+		return ethub_usb_set_device_state(udev, new_state);
+#endif
 
 	spin_lock_irqsave(&device_state_lock, flags);
 	if (udev->state == USB_STATE_NOTATTACHED)
@@ -1730,6 +1775,11 @@ void usb_disconnect(struct usb_device **pdev)
 {
 	struct usb_device	*udev = *pdev;
 	int			i;
+
+#if defined(CONFIG_USB_ETRON_HUB)
+	if (usb_is_etron_hcd(*pdev))
+		return ethub_usb_disconnect(pdev);
+#endif
 
 	/* mark the device as inactive, so any further urb submissions for
 	 * this device (and any of its children) will fail immediately.
@@ -1982,6 +2032,11 @@ int usb_new_device(struct usb_device *udev)
 {
 	int err;
 
+#if defined(CONFIG_USB_ETRON_HUB)
+	if (usb_is_etron_hcd(udev))
+		return ethub_usb_new_device(udev);
+#endif
+
 	if (udev->parent) {
 		/* Initialize non-root-hub device wakeup to disabled;
 		 * device (un)configuration controls wakeup capable
@@ -2067,6 +2122,11 @@ fail:
  */
 int usb_deauthorize_device(struct usb_device *usb_dev)
 {
+#if defined(CONFIG_USB_ETRON_HUB)
+	if (usb_is_etron_hcd(usb_dev))
+		return ethub_usb_deauthorize_device(usb_dev);
+#endif
+
 	usb_lock_device(usb_dev);
 	if (usb_dev->authorized == 0)
 		goto out_unauthorized;
@@ -2093,6 +2153,11 @@ out_unauthorized:
 int usb_authorize_device(struct usb_device *usb_dev)
 {
 	int result = 0, c;
+
+#if defined(CONFIG_USB_ETRON_HUB)
+	if (usb_is_etron_hcd(usb_dev))
+		return ethub_usb_authorize_device(usb_dev);
+#endif
 
 	usb_lock_device(usb_dev);
 	if (usb_dev->authorized == 1)
@@ -2516,6 +2581,11 @@ int usb_port_suspend(struct usb_device *udev, pm_message_t msg)
 	int		port1 = udev->portnum;
 	int		status;
 
+#if defined(CONFIG_USB_ETRON_HUB)
+	if (usb_is_etron_hcd(udev))
+		return ethub_usb_port_suspend(udev, msg);
+#endif
+
 	/* enable remote wakeup when appropriate; this lets the device
 	 * wake up the upstream hub (including maybe the root hub).
 	 *
@@ -2721,6 +2791,11 @@ int usb_port_resume(struct usb_device *udev, pm_message_t msg)
 	int		status;
 	u16		portchange, portstatus;
 
+#if defined(CONFIG_USB_ETRON_HUB)
+	if (usb_is_etron_hcd(udev))
+		return ethub_usb_port_resume(udev, msg);
+#endif
+
 	/* Skip the initial Clear-Suspend step for a remote wakeup */
 	status = hub_port_status(hub, port1, &portstatus, &portchange);
 	if (status == 0 && !port_is_suspended(hub, portstatus))
@@ -2793,6 +2868,11 @@ int usb_remote_wakeup(struct usb_device *udev)
 {
 	int	status = 0;
 
+#if defined(CONFIG_USB_ETRON_HUB)
+	if (usb_is_etron_hcd(udev))
+		return ethub_usb_remote_wakeup(udev);
+#endif
+
 	if (udev->state == USB_STATE_SUSPENDED) {
 		dev_dbg(&udev->dev, "usb %sresume\n", "wakeup-");
 		status = usb_autoresume_device(udev);
@@ -2810,6 +2890,11 @@ int usb_remote_wakeup(struct usb_device *udev)
 
 int usb_port_suspend(struct usb_device *udev, pm_message_t msg)
 {
+#if defined(CONFIG_USB_ETRON_HUB)
+	if (usb_is_etron_hcd(udev))
+		return ethub_usb_port_suspend(udev, msg);
+#endif
+
 	return 0;
 }
 
@@ -2821,6 +2906,11 @@ int usb_port_resume(struct usb_device *udev, pm_message_t msg)
 	int		port1 = udev->portnum;
 	int		status;
 	u16		portchange, portstatus;
+
+#if defined(CONFIG_USB_ETRON_HUB)
+	if (usb_is_etron_hcd(udev))
+		return ethub_usb_port_resume(udev, msg);
+#endif
 
 	status = hub_port_status(hub, port1, &portstatus, &portchange);
 	status = check_port_resume_type(udev,
@@ -2906,6 +2996,11 @@ static int hub_reset_resume(struct usb_interface *intf)
  */
 void usb_root_hub_lost_power(struct usb_device *rhdev)
 {
+#if defined(CONFIG_USB_ETRON_HUB)
+	if (usb_is_etron_hcd(rhdev))
+		return ethub_usb_root_hub_lost_power(rhdev);
+#endif
+
 	dev_warn(&rhdev->dev, "root hub lost power or was reset\n");
 	rhdev->reset_resume = 1;
 }
@@ -2977,6 +3072,11 @@ static int hub_port_debounce(struct usb_hub *hub, int port1)
 
 void usb_ep0_reinit(struct usb_device *udev)
 {
+#if defined(CONFIG_USB_ETRON_HUB)
+	if (usb_is_etron_hcd(udev))
+		return ethub_usb_ep0_reinit(udev);
+#endif
+
 	usb_disable_endpoint(udev, 0 + USB_DIR_IN, true);
 	usb_disable_endpoint(udev, 0 + USB_DIR_OUT, true);
 	usb_enable_endpoint(udev, &udev->ep0, true);
@@ -4223,6 +4323,11 @@ int usb_reset_device(struct usb_device *udev)
 	int ret;
 	int i;
 	struct usb_host_config *config = udev->actconfig;
+
+#if defined(CONFIG_USB_ETRON_HUB)
+	if (usb_is_etron_hcd(udev))
+		return ethub_usb_reset_device(udev);
+#endif
 
 	if (udev->state == USB_STATE_NOTATTACHED ||
 			udev->state == USB_STATE_SUSPENDED) {

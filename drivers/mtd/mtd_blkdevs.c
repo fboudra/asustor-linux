@@ -136,8 +136,9 @@ static int mtd_blktrans_thread(void *arg)
 	struct request *req = NULL;
 	int background_done = 0;
 
+	down(&dev->thread_sem);
 	spin_lock_irq(rq->queue_lock);
-
+	
 	while (!kthread_should_stop()) {
 		int res;
 
@@ -162,7 +163,9 @@ static int mtd_blktrans_thread(void *arg)
 				set_current_state(TASK_RUNNING);
 
 			spin_unlock_irq(rq->queue_lock);
+			up(&dev->thread_sem);
 			schedule();
+			down(&dev->thread_sem);
 			spin_lock_irq(rq->queue_lock);
 			continue;
 		}
@@ -185,6 +188,7 @@ static int mtd_blktrans_thread(void *arg)
 		__blk_end_request_all(req, -EIO);
 
 	spin_unlock_irq(rq->queue_lock);
+	up(&dev->thread_sem);
 
 	return 0;
 }
@@ -439,6 +443,7 @@ int add_mtd_blktrans_dev(struct mtd_blktrans_dev *new)
 
 	/* Create processing thread */
 	/* TODO: workqueue ? */
+	sema_init(&new->thread_sem, 1);
 	new->thread = kthread_run(mtd_blktrans_thread, new,
 			"%s%d", tr->name, new->mtd->index);
 	if (IS_ERR(new->thread)) {

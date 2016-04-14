@@ -49,6 +49,9 @@ endif # BLOCK
 #
 config FS_POSIX_ACL
 	def_bool n
+	
+config FS_ASACL
+	def_bool n
 
 config EXPORTFS
 	tristate

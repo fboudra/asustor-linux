@@ -47,11 +47,6 @@ static u8 validate_ssid(struct ndis_802_11_ssid *ssid)
 
 	if (ssid->SsidLength > 32)
 		return false;
-	for (i = 0; i < ssid->SsidLength; i++) {
-		/* wifi, printable ascii code must be supported */
-		if (!((ssid->Ssid[i] >= 0x20) && (ssid->Ssid[i] <= 0x7e)))
-			return false;
-	}
 	return true;
 }
 

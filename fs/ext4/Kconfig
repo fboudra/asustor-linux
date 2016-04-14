@@ -83,3 +83,10 @@ config EXT4_DEBUG
 
 	  If you select Y here, then you will be able to turn on debugging
 	  with a command such as "echo 1 > /sys/kernel/debug/ext4/mballoc-debug"
+
+config EXT4_FS_ASACL
+	bool "Ext4 ASACL"
+	depends on EXT4_FS_XATTR
+	select FS_ASACL
+	help
+	  ASACL, tested by clko.

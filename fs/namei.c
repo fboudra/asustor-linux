@@ -175,7 +175,12 @@ void putname(const char *name)
 EXPORT_SYMBOL(putname);
 #endif
 
+#ifdef ASUSTOR_PATCH_ASACL
+/* Patch purpose: ASACL */
+static int check_posix_acl(struct inode *inode, int mask)
+#else /* ASUSTOR_PATCH_ASACL */
 static int check_acl(struct inode *inode, int mask)
+#endif /* ASUSTOR_PATCH_ASACL */
 {
 #ifdef CONFIG_FS_POSIX_ACL
 	struct posix_acl *acl;
@@ -220,6 +225,19 @@ static int check_acl(struct inode *inode, int mask)
 
 	return -EAGAIN;
 }
+
+#ifdef ASUSTOR_PATCH_ASACL
+/* Patch purpose: ASACL */
+
+// Create a new "check_acl" function that will support POSIX acl or ASACL depends on the situation.
+static int check_acl(struct inode *inode, int mask)
+{
+	if (IS_POSIXACL(inode))
+		return check_posix_acl(inode, mask);
+	else
+		return -EAGAIN;
+}
+#endif /* ASUSTOR_PATCH_ASACL */
 
 /*
  * This does the basic permission checking
@@ -1925,6 +1943,7 @@ static int user_path_parent(int dfd, const char __user *path,
 	return error;
 }
 
+
 /*
  * It's inline, so penalty for filesystems that don't use sticky bit is
  * minimal.
@@ -1941,7 +1960,7 @@ static inline int check_sticky(struct inode *dir, struct inode *inode)
 		return 0;
 	if (dir->i_uid == fsuid)
 		return 0;
-
+		
 other_userns:
 	return !ns_capable(inode_userns(inode), CAP_FOWNER);
 }
@@ -1965,7 +1984,12 @@ other_userns:
  * 10. We don't allow removal of NFS sillyrenamed files; it's handled by
  *     nfs_async_unlink().
  */
+#ifdef ASUSTOR_PATCH_ASACL
+/* Patch purpose: ASACL */
+static int may_delete(struct inode *dir,struct dentry *victim,int isdir, int bIfReplace)
+#else /* ASUSTOR_PATCH_ASACL */
 static int may_delete(struct inode *dir,struct dentry *victim,int isdir)
+#endif /* ASUSTOR_PATCH_ASACL */
 {
 	int error;
 
@@ -1976,6 +2000,7 @@ static int may_delete(struct inode *dir,struct dentry *victim,int isdir)
 	audit_inode_child(victim, dir);
 
 	error = inode_permission(dir, MAY_WRITE | MAY_EXEC);
+
 	if (error)
 		return error;
 	if (IS_APPEND(dir))
@@ -2005,6 +2030,24 @@ static int may_delete(struct inode *dir,struct dentry *victim,int isdir)
  *  3. We should have write and exec permissions on dir
  *  4. We can't do it if dir is immutable (done in permission())
  */
+#ifdef ASUSTOR_PATCH_ASACL
+/* Patch purpose: ASACL */
+
+static inline int may_create(struct inode *dir, struct dentry *child, int isDir)
+{
+	int  mCreateMask = isDir ? MAY_CREATE_DIR : MAY_CREATE_FILE;
+
+	if (child->d_inode)
+		return -EEXIST;
+	if (IS_DEADDIR(dir))
+		return -ENOENT;
+	// (Why keep the 'MAY_WRITE' flag: To make it compatible if this file don't have ASACL and have to use file permission mode to check access,
+	//  The 'MAY_WRITE' flag will be ignored when it is transfered into ASACL permission bit mask.)
+	return inode_permission(dir, MAY_WRITE | MAY_EXEC | mCreateMask);
+}
+
+#else /* ASUSTOR_PATCH_ASACL */
+
 static inline int may_create(struct inode *dir, struct dentry *child)
 {
 	if (child->d_inode)
@@ -2013,6 +2056,8 @@ static inline int may_create(struct inode *dir, struct dentry *child)
 		return -ENOENT;
 	return inode_permission(dir, MAY_WRITE | MAY_EXEC);
 }
+#endif /* ASUSTOR_PATCH_ASACL */
+
 
 /*
  * p1 and p2 should be directories on the same fs.
@@ -2059,7 +2104,12 @@ void unlock_rename(struct dentry *p1, struct dentry *p2)
 int vfs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
 		struct nameidata *nd)
 {
+#ifdef ASUSTOR_PATCH_ASACL
+	/* Patch purpose: ASACL */
+	int error = may_create(dir, dentry, AS_FALSE);  // Ask may create FILE.
+#else /* ASUSTOR_PATCH_ASACL */
 	int error = may_create(dir, dentry);
+#endif /* ASUSTOR_PATCH_ASACL */
 
 	if (error)
 		return error;
@@ -2260,6 +2310,7 @@ static struct file *do_last(struct nameidata *nd, struct path *path,
 		umode_t mode = op->mode;
 		if (!IS_POSIXACL(dir->d_inode))
 			mode &= ~current_umask();
+
 		/*
 		 * This write is needed to ensure that a
 		 * rw->ro transition does not occur between
@@ -2526,7 +2577,12 @@ EXPORT_SYMBOL(user_path_create);
 
 int vfs_mknod(struct inode *dir, struct dentry *dentry, umode_t mode, dev_t dev)
 {
+#ifdef ASUSTOR_PATCH_ASACL
+	/* Patch purpose: ASACL */
+	int error = may_create(dir, dentry, AS_FALSE);		// Ask may create FILE.
+#else /* ASUSTOR_PATCH_ASACL */
 	int error = may_create(dir, dentry);
+#endif /* ASUSTOR_PATCH_ASACL */
 
 	if (error)
 		return error;
@@ -2585,6 +2641,7 @@ SYSCALL_DEFINE4(mknodat, int, dfd, const char __user *, filename, umode_t, mode,
 
 	if (!IS_POSIXACL(path.dentry->d_inode))
 		mode &= ~current_umask();
+
 	error = may_mknod(mode);
 	if (error)
 		goto out_dput;
@@ -2623,7 +2680,13 @@ SYSCALL_DEFINE3(mknod, const char __user *, filename, umode_t, mode, unsigned, d
 
 int vfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 {
+#ifdef ASUSTOR_PATCH_ASACL
+	/* Patch purpose: ASACL */
+	int error = may_create(dir, dentry, AS_TRUE);  // Ask may create DIR.
+#else /* ASUSTOR_PATCH_ASACL */
 	int error = may_create(dir, dentry);
+#endif /* ASUSTOR_PATCH_ASACL */
+
 	unsigned max_links = dir->i_sb->s_max_links;
 
 	if (error)
@@ -2658,6 +2721,7 @@ SYSCALL_DEFINE3(mkdirat, int, dfd, const char __user *, pathname, umode_t, mode)
 
 	if (!IS_POSIXACL(path.dentry->d_inode))
 		mode &= ~current_umask();
+
 	error = mnt_want_write(path.mnt);
 	if (error)
 		goto out_dput;
@@ -2705,7 +2769,12 @@ void dentry_unhash(struct dentry *dentry)
 
 int vfs_rmdir(struct inode *dir, struct dentry *dentry)
 {
+#ifdef ASUSTOR_PATCH_ASACL
+	/* Patch purpose: ASACL */
+	int error = may_delete(dir, dentry, 1, AS_FALSE);
+#else /* ASUSTOR_PATCH_ASACL */
 	int error = may_delete(dir, dentry, 1);
+#endif /* ASUSTOR_PATCH_ASACL */
 
 	if (error)
 		return error;
@@ -2800,7 +2869,12 @@ SYSCALL_DEFINE1(rmdir, const char __user *, pathname)
 
 int vfs_unlink(struct inode *dir, struct dentry *dentry)
 {
+#ifdef ASUSTOR_PATCH_ASACL
+	/* Patch purpose: ASACL */
+	int error = may_delete(dir, dentry, 0, AS_FALSE);
+#else /* ASUSTOR_PATCH_ASACL */
 	int error = may_delete(dir, dentry, 0);
+#endif /* ASUSTOR_PATCH_ASACL */
 
 	if (error)
 		return error;
@@ -2836,7 +2910,11 @@ int vfs_unlink(struct inode *dir, struct dentry *dentry)
  * writeout happening, and we don't want to prevent access to the directory
  * while waiting on the I/O.
  */
+#ifdef ASUSTOR_PATCH
+long do_unlinkat(int dfd, const char __user *pathname)
+#else
 static long do_unlinkat(int dfd, const char __user *pathname)
+#endif
 {
 	int error;
 	char *name;
@@ -2890,6 +2968,9 @@ slashes:
 		S_ISDIR(dentry->d_inode->i_mode) ? -EISDIR : -ENOTDIR;
 	goto exit2;
 }
+#ifdef ASUSTOR_PATCH
+EXPORT_SYMBOL(do_unlinkat);
+#endif
 
 SYSCALL_DEFINE3(unlinkat, int, dfd, const char __user *, pathname, int, flag)
 {
@@ -2909,7 +2990,12 @@ SYSCALL_DEFINE1(unlink, const char __user *, pathname)
 
 int vfs_symlink(struct inode *dir, struct dentry *dentry, const char *oldname)
 {
+#ifdef ASUSTOR_PATCH_ASACL
+	/* Patch purpose: ASACL */
+	int error = may_create(dir, dentry, AS_FALSE);  // Ask may create FILE.
+#else /* ASUSTOR_PATCH_ASACL */
 	int error = may_create(dir, dentry);
+#endif /* ASUSTOR_PATCH_ASACL */
 
 	if (error)
 		return error;
@@ -2976,7 +3062,13 @@ int vfs_link(struct dentry *old_dentry, struct inode *dir, struct dentry *new_de
 	if (!inode)
 		return -ENOENT;
 
+#ifdef ASUSTOR_PATCH_ASACL
+	/* Patch purpose: ASACL */
+	error = may_create(dir, new_dentry, AS_FALSE);  // Ask may create FILE.
+#else /* ASUSTOR_PATCH_ASACL */
 	error = may_create(dir, new_dentry);
+#endif /* ASUSTOR_PATCH_ASACL */
+
 	if (error)
 		return error;
 
@@ -3204,14 +3296,35 @@ int vfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	if (old_dentry->d_inode == new_dentry->d_inode)
  		return 0;
  
+#ifdef ASUSTOR_PATCH_ASACL
+	/* Patch purpose: ASACL */
+	error = may_delete(old_dir, old_dentry, is_dir, AS_FALSE);
+#else /* ASUSTOR_PATCH_ASACL */
 	error = may_delete(old_dir, old_dentry, is_dir);
+#endif /* ASUSTOR_PATCH_ASACL */
+
 	if (error)
 		return error;
 
 	if (!new_dentry->d_inode)
+	{
+#ifdef ASUSTOR_PATCH_ASACL
+		/* Patch purpose: ASACL */
+		error = may_create(new_dir, new_dentry, is_dir);
+#else /* ASUSTOR_PATCH_ASACL */
 		error = may_create(new_dir, new_dentry);
+#endif /* ASUSTOR_PATCH_ASACL */
+	}
 	else
+	{
+#ifdef ASUSTOR_PATCH_ASACL
+		/* Patch purpose: ASACL */
+		// This deleting action may also require "CREATE" permission.
+		error = may_delete(new_dir, new_dentry, is_dir, AS_TRUE);
+#else /* ASUSTOR_PATCH_ASACL */
 		error = may_delete(new_dir, new_dentry, is_dir);
+#endif /* ASUSTOR_PATCH_ASACL */
+	}
 	if (error)
 		return error;
 

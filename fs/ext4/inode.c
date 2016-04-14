@@ -42,7 +42,6 @@
 #include "xattr.h"
 #include "acl.h"
 #include "truncate.h"
-
 #include <trace/events/ext4.h>
 
 #define MPAGE_DA_EXTENT_TAIL 0x01

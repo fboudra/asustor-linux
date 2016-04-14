@@ -8,6 +8,12 @@
  * the Free Software Foundation; either version 2 of the License, or (at
  * your option) any later version.
  */
+/******************************************************************
+ 
+ Includes Intel Corporation's changes/modifications dated: 03/2013.
+ Changed/modified portions - Copyright(c) 2013, Intel Corporation. 
+
+******************************************************************/
 #ifndef LINUX_MMC_SDHCI_H
 #define LINUX_MMC_SDHCI_H
 
@@ -16,6 +22,9 @@
 #include <linux/types.h>
 #include <linux/io.h>
 #include <linux/mmc/host.h>
+#if defined(CONFIG_ARCH_GEN3) && defined(CONFIG_HW_MUTEXES)
+#include <linux/hw_mutex.h>
+#endif
 
 struct sdhci_host {
 	/* Data set by hardware interface driver */
@@ -91,7 +100,10 @@ struct sdhci_host {
 	unsigned int quirks2;	/* More deviations from spec. */
 
 #define SDHCI_QUIRK2_HOST_OFF_CARD_ON			(1<<0)
-
+#ifdef CONFIG_ARCH_GEN3
+/* SDHCI could not suspend in CE2600 platform */       
+#define SDHCI_QUIRK_NO_SUSPEND                   (1<<1)
+#endif
 	int irq;		/* Device IRQ */
 	void __iomem *ioaddr;	/* Mapped address */
 
@@ -122,6 +134,13 @@ struct sdhci_host {
 #define SDHCI_PV_ENABLED	(1<<8)	/* Preset value enabled */
 #define SDHCI_SDIO_IRQ_ENABLED	(1<<9)	/* SDIO irq enabled */
 #define SDHCI_HS200_NEEDS_TUNING (1<<10)	/* HS200 needs tuning */
+#ifdef CONFIG_ARCH_GEN3
+#define SDHCI_SUPPORT_DDR      (1<<11)          /* Support DDR */
+#ifdef CONFIG_HW_MUTEXES
+/* Two or more processors access the controller, HW Mutex is necessary to avoid confliction*/
+#define SDHCI_SUPPORT_HW_MUTEX (1<<12)
+#endif
+#endif
 
 	unsigned int version;	/* SDHCI spec. version */
 
@@ -171,4 +190,30 @@ struct sdhci_host {
 
 	unsigned long private[0] ____cacheline_aligned;
 };
+
+#if defined(CONFIG_ARCH_GEN3) && defined(CONFIG_HW_MUTEXES)
+
+#define EMMC_HW_MUTEX_IS_LOCKED(host) (hw_mutex_is_locked(HW_MUTEX_EMMC))
+               
+#define LOCK_EMMC_HW_MUTEX(host) do{\
+		if(((struct sdhci_host *)host->private)->flags & SDHCI_SUPPORT_HW_MUTEX)\
+		{\
+			hw_mutex_lock(HW_MUTEX_EMMC);\
+			enable_irq(((struct sdhci_host *)host->private)->irq);\
+		}\
+	} while(0)
+
+
+#define UNLOCK_EMMC_HW_MUTEX(host) do{\
+	if(((struct sdhci_host *)host->private)->flags & SDHCI_SUPPORT_HW_MUTEX)\
+		{\
+			disable_irq(((struct sdhci_host *)host->private)->irq);\
+			hw_mutex_unlock(HW_MUTEX_EMMC);\
+		}\
+	} while(0)
+
+#define sdhci_host_has_HWMTX(host) ((host)->flags & SDHCI_SUPPORT_HW_MUTEX)
+
+#endif /* CONFIG_ARCH_GEN3 */
+
 #endif /* LINUX_MMC_SDHCI_H */

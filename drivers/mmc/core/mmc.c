@@ -10,6 +10,15 @@
  * published by the Free Software Foundation.
  */
 
+
+/******************************************************************
+ 
+ Includes Intel Corporation's changes/modifications dated: 03/2013.
+ Changed/modified portions - Copyright(c) 2013, Intel Corporation. 
+
+******************************************************************/
+
+
 #include <linux/err.h>
 #include <linux/slab.h>
 #include <linux/stat.h>
@@ -243,6 +252,9 @@ static int mmc_read_ext_csd(struct mmc_card *card, u8 *ext_csd)
 	int err = 0, idx;
 	unsigned int part_size;
 	u8 hc_erase_grp_sz = 0, hc_wp_grp_sz = 0;
+#ifdef CONFIG_ARCH_GEN3
+	int i;
+#endif
 
 	BUG_ON(!card);
 
@@ -284,6 +296,39 @@ static int mmc_read_ext_csd(struct mmc_card *card, u8 *ext_csd)
 		if (card->ext_csd.sectors > (2u * 1024 * 1024 * 1024) / 512)
 			mmc_card_set_blockaddr(card);
 	}
+#ifdef CONFIG_ARCH_GEN3
+	card->ext_csd.boot_size_mult = ext_csd[EXT_CSD_BOOT_SIZE_MULT];
+	card->ext_csd.boot_config = ext_csd[EXT_CSD_BOOT_CONFIG];
+
+	if (ext_csd[EXT_CSD_REV] >= 5) {
+		for (i = 0; i < 4; i++) {
+			card->ext_csd.gp_size[i] =
+				(ext_csd[EXT_CSD_GP_SIZE_MULT + i * 3] + 
+				ext_csd[EXT_CSD_GP_SIZE_MULT + i * 3 + 1] * 256 +
+				ext_csd[EXT_CSD_GP_SIZE_MULT + i * 3 + 2] * 65536) *
+				ext_csd[EXT_CSD_HC_WP_GRP_SIZE] * 
+				ext_csd[EXT_CSD_HC_ERASE_GRP_SIZE] * 1024 *
+				(ext_csd[EXT_CSD_PARTITION_SUPPORT] & 0x1);
+		}
+	}
+	else if (ext_csd[EXT_CSD_REV] == 4) {
+		for (i = 0; i < 4; i++) {
+			card->ext_csd.gp_size[i] =
+				(ext_csd[EXT_CSD_GP_SIZE_MULT + i * 3] + 
+				ext_csd[EXT_CSD_GP_SIZE_MULT + i * 3 + 1] * 8 +
+				ext_csd[EXT_CSD_GP_SIZE_MULT + i * 3 + 2] * 64) *
+				ext_csd[EXT_CSD_HC_WP_GRP_SIZE] * 
+				ext_csd[EXT_CSD_HC_ERASE_GRP_SIZE] * 1024 *
+				(ext_csd[EXT_CSD_PARTITION_SUPPORT] & 0x1);
+		}
+	}
+	else {
+		for (i = 0; i < 4; i++) {
+			card->ext_csd.gp_size[i] = 0;
+		}
+	}
+#endif
+
 	card->ext_csd.raw_card_type = ext_csd[EXT_CSD_CARD_TYPE];
 	switch (ext_csd[EXT_CSD_CARD_TYPE] & EXT_CSD_CARD_TYPE_MASK) {
 	case EXT_CSD_CARD_TYPE_SDR_ALL:

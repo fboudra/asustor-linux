@@ -7,6 +7,16 @@
  *
  *  Card driver specific definitions.
  */
+
+
+/******************************************************************
+ 
+ Includes Intel Corporation's changes/modifications dated: 03/2013.
+ Changed/modified portions - Copyright(c) 2013, Intel Corporation. 
+
+******************************************************************/
+
+
 #ifndef LINUX_MMC_CARD_H
 #define LINUX_MMC_CARD_H
 
@@ -68,6 +78,11 @@ struct mmc_ext_csd {
 	bool			enhanced_area_en;	/* enable bit */
 	unsigned long long	enhanced_area_offset;	/* Units: Byte */
 	unsigned int		enhanced_area_size;	/* Units: KB */
+#ifdef CONFIG_ARCH_GEN3
+	unsigned char           boot_size_mult;
+	unsigned char           boot_config;
+	unsigned long           gp_size[4];
+#endif
 	unsigned int		cache_size;		/* Units: KB */
 	bool			hpi_en;			/* HPI enablebit */
 	bool			hpi;			/* HPI support bit */

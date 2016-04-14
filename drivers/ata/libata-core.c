@@ -71,6 +71,7 @@
 #include "libata.h"
 #include "libata-transport.h"
 
+
 /* debounce timing parameters in msecs { interval, duration, timeout } */
 const unsigned long sata_deb_timing_normal[]		= {   5,  100, 2000 };
 const unsigned long sata_deb_timing_hotplug[]		= {  25,  500, 2000 };
@@ -6210,10 +6211,8 @@ static void ata_port_detach(struct ata_port *ap)
 void ata_host_detach(struct ata_host *host)
 {
 	int i;
-
 	for (i = 0; i < host->n_ports; i++)
 		ata_port_detach(host->ports[i]);
-
 	/* the host is dead now, dissociate ACPI */
 	ata_acpi_dissociate(host);
 }

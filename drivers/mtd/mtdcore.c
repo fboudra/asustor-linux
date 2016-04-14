@@ -41,6 +41,7 @@
 #include <linux/mtd/partitions.h>
 
 #include "mtdcore.h"
+
 /*
  * backing device capabilities for non-mappable devices (such as NAND flash)
  * - permits private mappings, copies are taken of the data
@@ -1073,6 +1074,7 @@ static const struct file_operations mtd_proc_ops = {
 	.llseek		= seq_lseek,
 	.release	= single_release,
 };
+
 #endif /* CONFIG_PROC_FS */
 
 /*====================================================================*/
@@ -1095,7 +1097,6 @@ static int __init mtd_bdi_init(struct backing_dev_info *bdi, const char *name)
 static int __init init_mtd(void)
 {
 	int ret;
-
 	ret = class_register(&mtd_class);
 	if (ret)
 		goto err_reg;

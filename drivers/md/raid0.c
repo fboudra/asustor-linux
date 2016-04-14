@@ -26,6 +26,7 @@
 #include "raid0.h"
 #include "raid5.h"
 
+
 static int raid0_congested(void *data, int bits)
 {
 	struct mddev *mddev = data;
@@ -403,7 +404,6 @@ static sector_t raid0_size(struct mddev *mddev, sector_t sectors, int raid_disks
 
 	rdev_for_each(rdev, mddev)
 		array_sectors += rdev->sectors;
-
 	return array_sectors;
 }
 
@@ -460,14 +460,12 @@ static int raid0_run(struct mddev *mddev)
 	ret = md_integrity_register(mddev);
 	if (ret)
 		raid0_stop(mddev);
-
 	return ret;
 }
 
 static int raid0_stop(struct mddev *mddev)
 {
 	struct r0conf *conf = mddev->private;
-
 	blk_sync_queue(mddev->queue); /* the unplug fn references 'conf'*/
 	kfree(conf->strip_zone);
 	kfree(conf->devlist);

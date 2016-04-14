@@ -3206,6 +3206,9 @@ struct tg3 {
 	const char			*fw_needed;
 	const struct firmware		*fw;
 	u32				fw_len; /* includes BSS */
+#ifdef ASUSTOR_PATCH
+	bool				link_up;
+#endif
 };
 
 #endif /* !(_T3_H) */

@@ -40,6 +40,12 @@
 
 #define MTD_FAIL_ADDR_UNKNOWN -1LL
 
+#ifdef ASUSTOR_PATCH
+extern int mtd_rw_right;
+#define ENABLE_MTD_ACCESS "enable_mtd_access"
+#define DISABLE_MTD_ACCESS "disable_mtd_access"
+#endif
+
 /*
  * If the erase fails, fail_addr might indicate exactly which block failed. If
  * fail_addr = MTD_FAIL_ADDR_UNKNOWN, the failure was not at the device level

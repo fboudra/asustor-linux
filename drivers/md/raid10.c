@@ -29,6 +29,7 @@
 #include "raid0.h"
 #include "bitmap.h"
 
+
 /*
  * RAID10 provides a combination of RAID0 and RAID1 functionality.
  * The layout of data is defined by
@@ -1633,7 +1634,6 @@ static int raid10_remove_disk(struct mddev *mddev, struct md_rdev *rdev)
 		rdevp = &p->replacement;
 	else
 		return 0;
-
 	if (test_bit(In_sync, &rdev->flags) ||
 	    atomic_read(&rdev->nr_pending)) {
 		err = -EBUSY;
@@ -2125,7 +2125,6 @@ static void fix_read_error(struct r10conf *conf, struct mddev *mddev, struct r10
 	if (atomic_read(&rdev->read_errors) > max_read_errors) {
 		char b[BDEVNAME_SIZE];
 		bdevname(rdev->bdev, b);
-
 		printk(KERN_NOTICE
 		       "md/raid10:%s: %s: Raid device exceeded "
 		       "read_error threshold [cur %d:max %d]\n",
@@ -3416,7 +3415,6 @@ static int run(struct mddev *mddev)
 
 	if (md_integrity_register(mddev))
 		goto out_free_conf;
-
 	return 0;
 
 out_free_conf:
@@ -3434,7 +3432,6 @@ out:
 static int stop(struct mddev *mddev)
 {
 	struct r10conf *conf = mddev->private;
-
 	raise_barrier(conf, 0);
 	lower_barrier(conf);
 

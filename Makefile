@@ -3,6 +3,7 @@ PATCHLEVEL = 4
 SUBLEVEL = 26
 EXTRAVERSION =
 NAME = Saber-toothed Squirrel
+ASUSTOR = "asustor"
 
 # *DOCUMENTATION*
 # To see a list of typical targets execute "make help"
@@ -170,7 +171,7 @@ SUBARCH := $(shell uname -m | sed -e s/i.86/i386/ -e s/sun4u/sparc64/ \
 				  -e s/s390x/s390/ -e s/parisc64/parisc/ \
 				  -e s/ppc.*/powerpc/ -e s/mips.*/mips/ \
 				  -e s/sh[234].*/sh/ )
-
+SUBARCH := x86
 # Cross compiling and selecting different set of gcc/bin-utils
 # ---------------------------------------------------------------------------
 #
@@ -362,7 +363,7 @@ LINUXINCLUDE    := -I$(srctree)/arch/$(hdr-arch)/include \
                    $(if $(KBUILD_SRC), -I$(srctree)/include) \
                    -include $(srctree)/include/linux/kconfig.h
 
-KBUILD_CPPFLAGS := -D__KERNEL__
+KBUILD_CPPFLAGS := -D__KERNEL__ -DASUSTOR_PATCH -DASUSTOR_PATCH_NOGPL -DASUSTOR_PATCH_ASACL
 
 KBUILD_CFLAGS   := -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
 		   -fno-strict-aliasing -fno-common \

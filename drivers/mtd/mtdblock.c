@@ -29,6 +29,8 @@
 #include <linux/types.h>
 #include <linux/vmalloc.h>
 
+#include <linux/blkdev.h>
+
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/blktrans.h>
 #include <linux/mutex.h>
@@ -36,6 +38,7 @@
 
 struct mtdblk_dev {
 	struct mtd_blktrans_dev mbd;
+	struct device dev;
 	int count;
 	struct mutex cache_mutex;
 	unsigned char *cache_data;
@@ -55,6 +58,57 @@ static DEFINE_MUTEX(mtdblks_lock);
  * and to speed things up, we locally cache a whole flash sector while it is
  * being written to until a different sector is required.
  */
+
+#ifdef CONFIG_PM
+static int mtdblock_dev_suspend(struct device *dev);
+static int mtdblock_dev_resume(struct device *dev);
+
+static struct dev_pm_ops mtdblock_dev_pm = {
+	.suspend = mtdblock_dev_suspend,
+	.resume = mtdblock_dev_resume,
+};
+
+static int mtdblock_dev_suspend(struct device *dev)
+{
+	struct mtdblk_dev *mtdblk = container_of(dev, struct mtdblk_dev, dev);
+
+	if (mtdblk) {
+		spin_lock_irq(mtdblk->mbd.rq->queue_lock);
+		blk_stop_queue(mtdblk->mbd.rq);
+		spin_unlock_irq(mtdblk->mbd.rq->queue_lock);
+		down(&mtdblk->mbd.thread_sem);
+	}
+	return 0;
+}
+
+static int mtdblock_dev_resume(struct device *dev)
+{
+	struct mtdblk_dev *mtdblk = container_of(dev, struct mtdblk_dev, dev);
+
+	if (mtdblk){
+		up(&mtdblk->mbd.thread_sem);
+		spin_lock_irq(mtdblk->mbd.rq->queue_lock);
+		blk_start_queue(mtdblk->mbd.rq);
+		spin_unlock_irq(mtdblk->mbd.rq->queue_lock);
+	}
+	return 0;
+}
+
+#endif
+
+static void mtdblk_release(struct device *dev)
+{
+	return;
+}
+
+static struct class mtdblock_class = {
+	.name = "mtdblock",
+	.owner = THIS_MODULE,
+#ifdef CONFIG_PM
+	.pm = &mtdblock_dev_pm,
+#endif
+	.dev_release = mtdblk_release,
+};
 
 static void erase_callback(struct erase_info *done)
 {
@@ -360,6 +414,12 @@ static void mtdblock_add_mtd(struct mtd_blktrans_ops *tr, struct mtd_info *mtd)
 
 	dev->mbd.size = mtd->size >> 9;
 	dev->mbd.tr = tr;
+	
+	dev->dev.class = &mtdblock_class;
+	dev_set_name(&dev->dev, "mtdblock%d", mtd->index);
+ 	dev_set_drvdata(&dev->dev, dev);   
+	if (device_register(&dev->dev) != 0)
+		return;
 
 	if (!(mtd->flags & MTD_WRITEABLE))
 		dev->mbd.readonly = 1;
@@ -370,7 +430,11 @@ static void mtdblock_add_mtd(struct mtd_blktrans_ops *tr, struct mtd_info *mtd)
 
 static void mtdblock_remove_dev(struct mtd_blktrans_dev *dev)
 {
+	struct mtdblk_dev *mtdblk_dev = container_of(dev, struct mtdblk_dev, mbd);
+
 	del_mtd_blktrans_dev(dev);
+	device_unregister(&mtdblk_dev->dev);
+ 	dev_set_drvdata(&mtdblk_dev->dev, NULL);   
 }
 
 static struct mtd_blktrans_ops mtdblock_tr = {
@@ -390,12 +454,19 @@ static struct mtd_blktrans_ops mtdblock_tr = {
 
 static int __init init_mtdblock(void)
 {
+	int ret = 0;
+	
+	ret = class_register(&mtdblock_class);
+	if (ret)
+		return ret;
+
 	return register_mtd_blktrans(&mtdblock_tr);
 }
 
 static void __exit cleanup_mtdblock(void)
 {
 	deregister_mtd_blktrans(&mtdblock_tr);
+	class_unregister(&mtdblock_class);
 }
 
 module_init(init_mtdblock);

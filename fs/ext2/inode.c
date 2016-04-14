@@ -1033,7 +1033,6 @@ static void ext2_free_branches(struct inode *inode, __le32 *p, __le32 *q, int de
 {
 	struct buffer_head * bh;
 	unsigned long nr;
-
 	if (depth--) {
 		int addr_per_block = EXT2_ADDR_PER_BLOCK(inode->i_sb);
 		for ( ; p < q ; p++) {

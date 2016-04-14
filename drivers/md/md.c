@@ -71,7 +71,6 @@ static void md_print_devices(void);
 static DECLARE_WAIT_QUEUE_HEAD(resync_wait);
 static struct workqueue_struct *md_wq;
 static struct workqueue_struct *md_misc_wq;
-
 #define MD_BUG(x...) { printk("md: bug in file %s, line %d\n", __FILE__, __LINE__); md_print_devices(); }
 
 /*
@@ -92,7 +91,6 @@ static struct workqueue_struct *md_misc_wq;
  * you can change it via /proc/sys/dev/raid/speed_limit_min and _max.
  * or /sys/block/mdX/md/sync_speed_{min,max}
  */
-
 static int sysctl_speed_limit_min = 1000;
 static int sysctl_speed_limit_max = 200000;
 static inline int speed_min(struct mddev *mddev)
@@ -5094,7 +5092,6 @@ static void __md_stop_writes(struct mddev *mddev)
 		set_bit(MD_RECOVERY_INTR, &mddev->recovery);
 		reap_sync_thread(mddev);
 	}
-
 	del_timer_sync(&mddev->safemode_timer);
 
 	bitmap_flush(mddev);
@@ -6321,7 +6318,6 @@ static int md_ioctl(struct block_device *bdev, fmode_t mode,
 		case HOT_REMOVE_DISK:
 			err = hot_remove_disk(mddev, new_decode_dev(arg));
 			goto done_unlock;
-
 		case HOT_ADD_DISK:
 			err = hot_add_disk(mddev, new_decode_dev(arg));
 			goto done_unlock;
@@ -7381,9 +7377,7 @@ static int remove_and_add_spares(struct mddev *mddev)
 	struct md_rdev *rdev;
 	int spares = 0;
 	int removed = 0;
-
 	mddev->curr_resync_completed = 0;
-
 	rdev_for_each(rdev, mddev)
 		if (rdev->raid_disk >= 0 &&
 		    !test_bit(Blocked, &rdev->flags) &&
@@ -7469,7 +7463,6 @@ static void reap_sync_thread(struct mddev *mddev)
 	if (mddev->event_work.func)
 		queue_work(md_misc_wq, &mddev->event_work);
 }
-
 /*
  * This routine is regularly called by all per-raid-array threads to
  * deal with generic issues like resync and super-block update.

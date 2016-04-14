@@ -18,7 +18,6 @@
 #include <linux/mutex.h>
 #include <linux/idr.h>
 #include <linux/log2.h>
-
 #include "blk.h"
 
 static DEFINE_MUTEX(block_class_lock);
@@ -1112,6 +1111,7 @@ static void disk_release(struct device *dev)
 struct class block_class = {
 	.name		= "block",
 };
+EXPORT_SYMBOL(block_class);
 
 static char *block_devnode(struct device *dev, umode_t *mode)
 {

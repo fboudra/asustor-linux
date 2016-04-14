@@ -33,6 +33,10 @@
  */
 #define MD_MAX_BADBLOCKS	(PAGE_SIZE/8)
 
+#ifdef ASUSTOR_PATCH
+#define ASUSTOR_32BIT_SECTORMAX	34359738368 // 34359738368 sectors = 16TB size limit
+#endif
+
 /*
  * MD's 'extended' device
  */
@@ -268,6 +272,10 @@ struct mddev {
 							 */
 	struct md_thread		*thread;	/* management thread */
 	struct md_thread		*sync_thread;	/* doing resync or reconstruct */
+#ifdef ASUSTOR_PATCH
+	struct md_thread		*reshape_thread;	/* doing check_reshape */
+	struct md_thread		*revalidate_thread;	/* doing revalidate_reshape */
+#endif	
 	sector_t			curr_resync;	/* last block scheduled */
 	/* As resync requests can complete out of order, we cannot easily track
 	 * how much resync has been completed.  So we occasionally pause until

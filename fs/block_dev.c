@@ -3,7 +3,11 @@
  *
  *  Copyright (C) 1991, 1992  Linus Torvalds
  *  Copyright (C) 2001  Andrea Arcangeli <andrea@suse.de> SuSE
- */
+ ******************************************************************
+ * Includes Intel Corporation's changes/modifications dated: 03/2013.
+ * Changed/modified portions - Copyright(c) 2013, Intel Corporation. 
+ *******************************************************************/
+
 
 #include <linux/init.h>
 #include <linux/mm.h>
@@ -29,6 +33,7 @@
 #include <linux/cleancache.h>
 #include <asm/uaccess.h>
 #include "internal.h"
+
 
 struct bdev_inode {
 	struct block_device bdev;
@@ -739,7 +744,10 @@ retry:
 		return -EBUSY;
 
 	/* if claiming is already in progress, wait for it to finish */
+#ifdef CONFIG_ARCH_GEN3
 	if (whole->bd_claiming) {
+#else	  
+#endif	  
 		wait_queue_head_t *wq = bit_waitqueue(&whole->bd_claiming, 0);
 		DEFINE_WAIT(wait);
 
@@ -1120,14 +1128,22 @@ static int __blkdev_get(struct block_device *bdev, fmode_t mode, int for_part)
 	/*
 	 * hooks: /n/, see "layering violations".
 	 */
+#ifdef CONFIG_ARCH_GEN3
 	if (!for_part) {
 		ret = devcgroup_inode_permission(bdev->bd_inode, perm);
 		if (ret != 0) {
 			bdput(bdev);
 			return ret;
 		}
+	}	
+#else
+	ret = devcgroup_inode_permission(bdev->bd_inode, perm);
+	if (ret != 0) {
+		bdput(bdev);
+		return ret;
 	}
 
+#endif
  restart:
 
 	ret = -ENXIO;

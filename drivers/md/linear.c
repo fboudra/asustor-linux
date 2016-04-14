@@ -24,6 +24,7 @@
 #include "md.h"
 #include "linear.h"
 
+
 /*
  * find which device holds a particular offset 
  */
@@ -129,7 +130,6 @@ static sector_t linear_size(struct mddev *mddev, sector_t sectors, int raid_disk
 		  "%s does not support generic reshape\n", __func__);
 	array_sectors = conf->array_sectors;
 	rcu_read_unlock();
-
 	return array_sectors;
 }
 

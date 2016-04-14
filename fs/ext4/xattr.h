@@ -21,6 +21,10 @@
 #define EXT4_XATTR_INDEX_TRUSTED		4
 #define	EXT4_XATTR_INDEX_LUSTRE			5
 #define EXT4_XATTR_INDEX_SECURITY	        6
+#ifdef ASUSTOR_PATCH_ASACL
+/* Patch purpose: ASACL */
+#define EXT4_XATTR_INDEX_ASACL			8
+#endif /* ASUSTOR_PATCH_ASACL */
 
 struct ext4_xattr_header {
 	__le32	h_magic;	/* magic number for identification */
@@ -70,6 +74,10 @@ extern const struct xattr_handler ext4_xattr_trusted_handler;
 extern const struct xattr_handler ext4_xattr_acl_access_handler;
 extern const struct xattr_handler ext4_xattr_acl_default_handler;
 extern const struct xattr_handler ext4_xattr_security_handler;
+#ifdef ASUSTOR_PATCH_ASACL
+/* Patch purpose: ASACL */
+extern const struct xattr_handler Ext4_Asacl_Xattr_Handler;
+#endif /* ASUSTOR_PATCH_ASACL */
 
 extern ssize_t ext4_listxattr(struct dentry *, char *, size_t);
 

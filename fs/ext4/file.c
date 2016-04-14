@@ -256,7 +256,12 @@ const struct inode_operations ext4_file_inode_operations = {
 	.listxattr	= ext4_listxattr,
 	.removexattr	= generic_removexattr,
 #endif
+#ifdef ASUSTOR_PATCH_ASACL
+	/* Patch purpose: ASACL */
+	.get_acl	= ext4_get_posix_acl,
+#else /* ASUSTOR_PATCH_ASACL */
 	.get_acl	= ext4_get_acl,
+#endif /* ASUSTOR_PATCH_ASACL */
 	.fiemap		= ext4_fiemap,
 };
 

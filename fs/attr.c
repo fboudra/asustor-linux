@@ -15,6 +15,7 @@
 #include <linux/security.h>
 #include <linux/evm.h>
 
+
 /**
  * inode_change_ok - check if attribute changes to an inode are allowed
  * @inode:	inode to check
@@ -27,10 +28,15 @@
  * Should be called as the first thing in ->setattr implementations,
  * possibly after taking additional locks.
  */
+#ifdef ASUSTOR_PATCH_ASACL
+/* Patch purpose: ASACL */
+int inode_change_ok(struct inode *inode, struct iattr *attr)
+#else /* ASUSTOR_PATCH_ASACL */
 int inode_change_ok(const struct inode *inode, struct iattr *attr)
+#endif /* ASUSTOR_PATCH_ASACL */
 {
 	unsigned int ia_valid = attr->ia_valid;
-
+	
 	/*
 	 * First check size constraints.  These can't be overriden using
 	 * ATTR_FORCE.
@@ -58,10 +64,12 @@ int inode_change_ok(const struct inode *inode, struct iattr *attr)
 	    !capable(CAP_CHOWN))
 		return -EPERM;
 
+
 	/* Make sure a caller can chmod. */
 	if (ia_valid & ATTR_MODE) {
 		if (!inode_owner_or_capable(inode))
 			return -EPERM;
+
 		/* Also check the setgid bit! */
 		if (!in_group_p((ia_valid & ATTR_GID) ? attr->ia_gid :
 				inode->i_gid) && !capable(CAP_FSETID))

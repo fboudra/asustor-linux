@@ -209,6 +209,18 @@ static inline void _tg3_flag_clear(enum TG3_FLAGS flag, unsigned long *bits)
 #define FIRMWARE_TG3TSO		"tigon/tg3_tso.bin"
 #define FIRMWARE_TG3TSO5	"tigon/tg3_tso5.bin"
 
+#ifdef ASUSTOR_PATCH
+#define MTU_1500	1500
+#define MTU_2000	2000
+#define MTU_3000	3000
+#define MTU_4000	4000
+#define MTU_5000	5000
+#define MTU_6000	6000
+#define MTU_7000	7000
+#define MTU_8000	8000
+#define MTU_9000	9000
+#endif
+
 static char version[] __devinitdata =
 	DRV_MODULE_NAME ".c:v" DRV_MODULE_VERSION " (" DRV_MODULE_RELDATE ")";
 
@@ -1684,6 +1696,9 @@ static void tg3_link_report(struct tg3 *tp)
 
 		tg3_ump_link_report(tp);
 	}
+#ifdef ASUSTOR_PATCH
+	tp->link_up = netif_carrier_ok(tp->dev);
+#endif
 }
 
 static u16 tg3_advert_flowctrl_1000X(u8 flow_ctrl)
@@ -2336,7 +2351,13 @@ static int tg3_phy_reset_5703_4_5(struct tg3 *tp)
 
 	return err;
 }
-
+#ifdef ASUSTOR_PATCH
+static void tg3_carrier_off(struct tg3 *tp)
+{
+	netif_carrier_off(tp->dev);
+	tp->link_up = false;
+}
+#endif
 /* This will reset the tigon3 PHY if there is no valid
  * link unless the FORCE argument is non-zero.
  */
@@ -5174,7 +5195,11 @@ static int tg3_setup_fiber_mii_phy(struct tg3 *tp, int force_reset)
 							   BMCR_ANRESTART |
 							   BMCR_ANENABLE);
 				udelay(10);
+#ifdef ASUSTOR_PATCH
+				tg3_carrier_off(tp);
+#else
 				netif_carrier_off(tp->dev);
+#endif
 			}
 			tg3_writephy(tp, MII_BMCR, new_bmcr);
 			bmcr = new_bmcr;
@@ -6362,6 +6387,9 @@ static inline void tg3_netif_stop(struct tg3 *tp)
 {
 	tp->dev->trans_start = jiffies;	/* prevent tx timeout */
 	tg3_napi_disable(tp);
+#ifdef ASUSTOR_PATCH
+	netif_carrier_off(tp->dev);
+#endif
 	netif_tx_disable(tp->dev);
 }
 
@@ -6372,7 +6400,10 @@ static inline void tg3_netif_start(struct tg3 *tp)
 	 * have free tx slots (such as after tg3_init_hw)
 	 */
 	netif_tx_wake_all_queues(tp->dev);
-
+#ifdef ASUSTOR_PATCH
+	if (tp->link_up)
+		netif_carrier_on(tp->dev);
+#endif
 	tg3_napi_enable(tp);
 	tp->napi[0].hw_status->status |= SD_STATUS_UPDATED;
 	tg3_enable_ints(tp);
@@ -9995,9 +10026,11 @@ static int tg3_open(struct net_device *dev)
 			tg3_flag_set(tp, TSO_CAPABLE);
 		}
 	}
-
+#ifdef ASUSTOR_PATCH
+	tg3_carrier_off(tp);
+#else
 	netif_carrier_off(tp->dev);
-
+#endif
 	err = tg3_power_up(tp);
 	if (err)
 		return err;
@@ -10152,9 +10185,11 @@ static int tg3_close(struct net_device *dev)
 	tg3_free_consistent(tp);
 
 	tg3_power_down(tp);
-
+#ifdef ASUSTOR_PATCH
+	tg3_carrier_off(tp);
+#else
 	netif_carrier_off(tp->dev);
-
+#endif
 	return 0;
 }
 
@@ -12307,7 +12342,15 @@ static int tg3_change_mtu(struct net_device *dev, int new_mtu)
 
 	if (new_mtu < TG3_MIN_MTU || new_mtu > TG3_MAX_MTU(tp))
 		return -EINVAL;
-
+#ifdef ASUSTOR_PATCH
+	if (MTU_1500 != new_mtu && MTU_2000 != new_mtu 
+		&& MTU_3000 != new_mtu && MTU_4000 != new_mtu 
+		&& MTU_5000 != new_mtu && MTU_6000 != new_mtu 
+		&& MTU_7000 != new_mtu && MTU_8000 != new_mtu && MTU_9000 != new_mtu){
+		printk(KERN_INFO "tg3: mtu size %d not allow\n", new_mtu);
+		return -EINVAL;
+	}
+#endif
 	if (!netif_running(dev)) {
 		/* We'll just catch it later when the
 		 * device is up'd.
@@ -12319,14 +12362,15 @@ static int tg3_change_mtu(struct net_device *dev, int new_mtu)
 	tg3_phy_stop(tp);
 
 	tg3_netif_stop(tp);
-
+#ifdef ASUSTOR_PATCH
+	tg3_set_mtu(dev, tp, new_mtu);
+#endif	
 	tg3_full_lock(tp, 1);
 
 	tg3_halt(tp, RESET_KIND_SHUTDOWN, 1);
-
+#ifndef ASUSTOR_PATCH
 	tg3_set_mtu(dev, tp, new_mtu);
-
-	/* Reset PHY, otherwise the read DMA engine will be in a mode that
+#endif		/* Reset PHY, otherwise the read DMA engine will be in a mode that
 	 * breaks all requests to 256 bytes.
 	 */
 	if (GET_ASIC_REV(tp->pci_chip_rev_id) == ASIC_REV_57766)
@@ -15774,7 +15818,9 @@ static int __devinit tg3_init_one(struct pci_dev *pdev,
 	}
 
 	tg3_timer_init(tp);
-
+#ifdef ASUSTOR_PATCH
+	tg3_carrier_off(tp);
+#endif
 	err = register_netdev(dev);
 	if (err) {
 		dev_err(&pdev->dev, "Cannot register net device, aborting\n");
@@ -15948,7 +15994,10 @@ static int tg3_resume(struct device *device)
 
 	if (!netif_running(dev))
 		return 0;
-
+#ifdef ASUSTOR_PATCH
+	pci_restore_state(pdev);
+	pci_save_state(pdev);
+#endif
 	netif_device_attach(dev);
 
 	tg3_full_lock(tp, 0);

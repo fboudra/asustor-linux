@@ -31,7 +31,11 @@
  * http://www.intel.com/technology/serialata/pdf/rev1_1.pdf
  *
  */
-
+/*
+ * ASUSTOR_PATCH:	2012/12/28	Desmond Wu
+ * description: AS_ENABLE_HDD_LED
+ * note:project create by john hou
+ */
 #include <linux/kernel.h>
 #include <linux/gfp.h>
 #include <linux/module.h>
@@ -45,7 +49,9 @@
 #include <scsi/scsi_cmnd.h>
 #include <linux/libata.h>
 #include "ahci.h"
-
+#ifdef ASUSTOR_PATCH
+#include <linux/pci.h> //AS_ENABLE_HDD_LED
+#endif
 static int ahci_skip_host_reset;
 int ahci_ignore_sss;
 EXPORT_SYMBOL_GPL(ahci_ignore_sss);
@@ -179,6 +185,30 @@ struct ata_port_operations ahci_ops = {
 	.port_stop		= ahci_port_stop,
 };
 EXPORT_SYMBOL_GPL(ahci_ops);
+
+#ifdef ASUSTOR_PATCH
+#define MAX_AHCI_SW_ACTIVITY_ENTRIES 4
+typedef struct _AHCI_SW_ACTIVITY AHCI_SW_ACTIVITY;
+typedef void (*AHCI_SW_ACTIVITY_CB) (AHCI_SW_ACTIVITY *pact);
+typedef struct _AHCI_SW_ACTIVITY
+{
+    unsigned short vendor_id;
+    unsigned short device_id;
+    unsigned short port;
+    unsigned activity;
+    AHCI_SW_ACTIVITY_CB callback;
+    void *callback_param;
+} AHCI_SW_ACTIVITY;
+static AHCI_SW_ACTIVITY ahci_sw_activity_group[MAX_AHCI_SW_ACTIVITY_ENTRIES] = {{0}};
+void ahci_get_sw_activity_group (AHCI_SW_ACTIVITY **array_ptr, int *count)
+{
+  if (array_ptr)
+    *array_ptr = &ahci_sw_activity_group[0];
+  if (count)
+    *count = MAX_AHCI_SW_ACTIVITY_ENTRIES;
+}
+EXPORT_SYMBOL(ahci_get_sw_activity_group);
+#endif
 
 struct ata_port_operations ahci_pmp_retry_srst_ops = {
 	.inherits		= &ahci_ops,
@@ -849,7 +879,30 @@ static void ahci_sw_activity(struct ata_link *link)
 	struct ata_port *ap = link->ap;
 	struct ahci_port_priv *pp = ap->private_data;
 	struct ahci_em_priv *emp = &pp->em_priv[link->pmp];
+#ifdef	ASUSTOR_PATCH
+    struct pci_dev *pdev = to_pci_dev(ap->host->dev);
+    int iloop;
+    volatile AHCI_SW_ACTIVITY_CB act_callback;
 
+    if (pdev)
+    {
+        for (iloop = 0; iloop < MAX_AHCI_SW_ACTIVITY_ENTRIES; iloop++)
+        {
+            // Use vendor_id as gating key. Increase efficiency without spin lock
+            if ((pdev->vendor == ahci_sw_activity_group[iloop].vendor_id) &&
+                        (pdev->device == ahci_sw_activity_group[iloop].device_id) &&
+                        (ap->port_no == ahci_sw_activity_group[iloop].port))
+            {
+                ahci_sw_activity_group[iloop].activity++;
+                // keep callback in local variable (non-critical section cb)
+                act_callback = ahci_sw_activity_group[iloop].callback;
+                if (act_callback)
+                    act_callback (&ahci_sw_activity_group[iloop]);
+                break;
+            }
+        }
+    }
+#endif
 	if (!(link->flags & ATA_LFLAG_SW_ACTIVITY))
 		return;
 

@@ -67,6 +67,7 @@
 #include "sd.h"
 #include "scsi_logging.h"
 
+
 MODULE_AUTHOR("Eric Youngdale");
 MODULE_DESCRIPTION("SCSI disk (sd) driver");
 MODULE_LICENSE("GPL");

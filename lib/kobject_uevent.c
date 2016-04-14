@@ -369,6 +369,8 @@ int add_uevent_var(struct kobj_uevent_env *env, const char *format, ...)
 }
 EXPORT_SYMBOL_GPL(add_uevent_var);
 
+
+
 #if defined(CONFIG_NET)
 static int uevent_net_init(struct net *net)
 {
