@@ -31,6 +31,10 @@
 #include <asm/byteorder.h>
 #include <uapi/linux/fs.h>
 
+#ifdef ASUSTOR_PATCH
+#define IOCTL_FLAG_VERIFYUFSD	1234321
+#endif
+
 struct export_operations;
 struct hd_geometry;
 struct iovec;
@@ -45,6 +49,7 @@ struct vfsmount;
 struct cred;
 struct swap_info_struct;
 struct seq_file;
+struct socket;
 
 extern void __init inode_init(void);
 extern void __init inode_init_early(void);
@@ -74,6 +79,19 @@ typedef void (dio_iodone_t)(struct kiocb *iocb, loff_t offset,
 #define MAY_CHDIR		0x00000040
 /* called from RCU mode, don't block */
 #define MAY_NOT_BLOCK		0x00000080
+#ifdef ASUSTOR_PATCH_ASACL
+/* Patch purpose: ASACL */
+#define MAY_CREATE_FILE		0x00000100
+#define MAY_CREATE_DIR		0x00000200
+#define MAY_DELETE_CHILD	0x00000400
+#define MAY_DELETE_SELF		0x00000800
+#define MAY_TAKE_OWNERSHIP	0x00001000
+#define MAY_CHMOD			0x00002000
+#define MAY_SET_TIMES		0x00004000
+
+#define AS_FALSE			0
+#define AS_TRUE				1
+#endif /* ASUSTOR_PATCH_ASACL */
 
 /*
  * flags in file.f_mode.  Note that FMODE_READ and FMODE_WRITE must correspond
@@ -506,6 +524,10 @@ static inline int mapping_writably_mapped(struct address_space *mapping)
 #define i_size_ordered_init(inode) do { } while (0)
 #endif
 
+#ifdef ASUSTOR_PATCH_ASACL
+/* Patch purpose: ASACL */
+struct _t_asacl_;
+#endif /* ASUSTOR_PATCH_ASACL */
 struct posix_acl;
 #define ACL_NOT_CACHED ((void *)(-1))
 
@@ -525,10 +547,31 @@ struct inode {
 	kgid_t			i_gid;
 	unsigned int		i_flags;
 
+#ifdef ASUSTOR_PATCH_ASACL
+	/* Patch purpose: ASACL */
+
+	union
+	{
+#ifdef CONFIG_FS_POSIX_ACL
+		struct
+		{
+			struct posix_acl	*i_acl;
+			struct posix_acl	*i_default_acl;
+		};
+#endif
+#ifdef CONFIG_FS_ASACL
+		struct _t_asacl_  *i_asacl;
+#endif /* CONFIG_FS_ASACL */
+	};
+
+#else /* ASUSTOR_PATCH_ASACL */
+
 #ifdef CONFIG_FS_POSIX_ACL
 	struct posix_acl	*i_acl;
 	struct posix_acl	*i_default_acl;
 #endif
+
+#endif /* ASUSTOR_PATCH_ASACL */
 
 	const struct inode_operations	*i_op;
 	struct super_block	*i_sb;
@@ -1539,6 +1582,8 @@ struct file_operations {
 	int (*flock) (struct file *, int, struct file_lock *);
 	ssize_t (*splice_write)(struct pipe_inode_info *, struct file *, loff_t *, size_t, unsigned int);
 	ssize_t (*splice_read)(struct file *, loff_t *, struct pipe_inode_info *, size_t, unsigned int);
+	ssize_t (*splice_from_socket)(struct file *file, struct socket *sock,
+				     loff_t __user *ppos, size_t count);
 	int (*setlease)(struct file *, long, struct file_lock **);
 	long (*fallocate)(struct file *file, int mode, loff_t offset,
 			  loff_t len);
@@ -1550,6 +1595,10 @@ struct inode_operations {
 	void * (*follow_link) (struct dentry *, struct nameidata *);
 	int (*permission) (struct inode *, int);
 	struct posix_acl * (*get_acl)(struct inode *, int);
+#ifdef ASUSTOR_PATCH_ASACL
+	/* Patch purpose: ASACL */
+	struct _t_asacl_ * (*get_asacl)(struct inode *);
+#endif /* ASUSTOR_PATCH_ASACL */
 
 	int (*readlink) (struct dentry *, char __user *,int);
 	void (*put_link) (struct dentry *, struct nameidata *, void *);
@@ -1663,6 +1712,19 @@ struct super_operations {
 #define IS_APPEND(inode)	((inode)->i_flags & S_APPEND)
 #define IS_IMMUTABLE(inode)	((inode)->i_flags & S_IMMUTABLE)
 #define IS_POSIXACL(inode)	__IS_FLG(inode, MS_POSIXACL)
+
+#ifdef ASUSTOR_PATCH_ASACL
+/* Patch purpose: ASACL */
+
+#ifdef CONFIG_FS_ASACL
+#define IS_ASACL(inode)		__IS_FLG(inode, MS_ASACL)
+#else /* CONFIG_FS_ASACL */
+#define IS_ASACL(inode)		0
+#endif /* CONFIG_FS_ASACL */
+
+// When defined, we use check_acl for acl permission check and prevent the VFS from applying the umask.
+#define IS_ACL(inode)		__IS_FLG(inode, MS_POSIXACL | MS_ASACL)
+#endif /* ASUSTOR_PATCH_ASACL */
 
 #define IS_DEADDIR(inode)	((inode)->i_flags & S_DEAD)
 #define IS_NOCMTIME(inode)	((inode)->i_flags & S_NOCMTIME)
@@ -1998,6 +2060,10 @@ struct filename {
 };
 
 extern long vfs_truncate(struct path *, loff_t);
+#ifdef ASUSTOR_PATCH
+extern int do_file_ftruncate(struct file *file, loff_t length, int small);
+extern long do_unlinkat(int dfd, const char __user *pathname);
+#endif
 extern int do_truncate(struct dentry *, loff_t start, unsigned int time_attrs,
 		       struct file *filp);
 extern int do_fallocate(struct file *file, int mode, loff_t offset,
@@ -2414,6 +2480,8 @@ extern ssize_t generic_file_splice_write(struct pipe_inode_info *,
 		struct file *, loff_t *, size_t, unsigned int);
 extern ssize_t generic_splice_sendpage(struct pipe_inode_info *pipe,
 		struct file *out, loff_t *, size_t len, unsigned int flags);
+extern ssize_t generic_splice_from_socket(struct file *file, struct socket *sock,
+				     loff_t __user *ppos, size_t count);
 
 extern void
 file_ra_state_init(struct file_ra_state *ra, struct address_space *mapping);
@@ -2571,7 +2639,13 @@ extern int buffer_migrate_page(struct address_space *,
 #define buffer_migrate_page NULL
 #endif
 
+#ifdef ASUSTOR_PATCH_ASACL
+/* Patch purpose: ASACL */
+extern int inode_change_ok(struct inode *, struct iattr *);
+#else /* ASUSTOR_PATCH_ASACL */
 extern int inode_change_ok(const struct inode *, struct iattr *);
+#endif /* ASUSTOR_PATCH_ASACL */
+
 extern int inode_newsize_ok(const struct inode *, loff_t offset);
 extern void setattr_copy(struct inode *inode, const struct iattr *attr);
 

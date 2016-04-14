@@ -137,6 +137,10 @@ struct regulator *__must_check devm_regulator_get(struct device *dev,
 					     const char *id);
 struct regulator *__must_check regulator_get_exclusive(struct device *dev,
 						       const char *id);
+struct regulator *__must_check regulator_get_optional(struct device *dev,
+						      const char *id);
+struct regulator *__must_check devm_regulator_get_optional(struct device *dev,
+							   const char *id);
 void regulator_put(struct regulator *regulator);
 void devm_regulator_put(struct regulator *regulator);
 
@@ -216,6 +220,25 @@ devm_regulator_get(struct device *dev, const char *id)
 	return NULL;
 }
 
+static inline struct regulator *__must_check
+regulator_get_exclusive(struct device *dev, const char *id)
+{
+	return NULL;
+}
+
+static inline struct regulator *__must_check
+regulator_get_optional(struct device *dev, const char *id)
+{
+	return NULL;
+}
+
+
+static inline struct regulator *__must_check
+devm_regulator_get_optional(struct device *dev, const char *id)
+{
+	return NULL;
+}
+
 static inline void regulator_put(struct regulator *regulator)
 {
 }
@@ -288,6 +311,12 @@ static inline void regulator_bulk_free(int num_consumers,
 
 static inline int regulator_set_voltage(struct regulator *regulator,
 					int min_uV, int max_uV)
+{
+	return 0;
+}
+
+static inline int regulator_set_voltage_time(struct regulator *regulator,
+					     int old_uV, int new_uV)
 {
 	return 0;
 }

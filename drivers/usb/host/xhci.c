@@ -27,6 +27,7 @@
 #include <linux/moduleparam.h>
 #include <linux/slab.h>
 #include <linux/dmi.h>
+#include <linux/kthread.h>
 
 #include "xhci.h"
 
@@ -3503,7 +3504,6 @@ void xhci_free_dev(struct usb_hcd *hcd, struct usb_device *udev)
 {
 	struct xhci_hcd *xhci = hcd_to_xhci(hcd);
 	struct xhci_virt_device *virt_dev;
-	struct device *dev = hcd->self.controller;
 	unsigned long flags;
 	u32 state;
 	int i, ret;
@@ -3515,7 +3515,7 @@ void xhci_free_dev(struct usb_hcd *hcd, struct usb_device *udev)
 	 * if no devices remain.
 	 */
 	if (xhci->quirks & XHCI_RESET_ON_RESUME)
-		pm_runtime_put_noidle(dev);
+		pm_runtime_put_noidle(hcd->self.controller);
 #endif
 
 	ret = xhci_check_args(hcd, udev, NULL, 0, true, __func__);
@@ -3589,7 +3589,6 @@ static int xhci_reserve_host_control_ep_resources(struct xhci_hcd *xhci)
 int xhci_alloc_dev(struct usb_hcd *hcd, struct usb_device *udev)
 {
 	struct xhci_hcd *xhci = hcd_to_xhci(hcd);
-	struct device *dev = hcd->self.controller;
 	unsigned long flags;
 	int timeleft;
 	int ret;
@@ -3649,7 +3648,7 @@ int xhci_alloc_dev(struct usb_hcd *hcd, struct usb_device *udev)
 	 * suspend if there is a device attached.
 	 */
 	if (xhci->quirks & XHCI_RESET_ON_RESUME)
-		pm_runtime_get_noresume(dev);
+		pm_runtime_get_noresume(hcd->self.controller);
 #endif
 
 	/* Is this a LS or FS device under a HS hub? */
@@ -4664,12 +4663,100 @@ int xhci_get_frame(struct usb_hcd *hcd)
 	return xhci_readl(xhci, &xhci->run_regs->microframe_index) >> 3;
 }
 
+static struct task_struct *kxhcd_task;
+static DECLARE_WAIT_QUEUE_HEAD(kxhcd_wait);
+static int __init xhci_hcd_init(void);
+static void __exit xhci_hcd_cleanup(void);
+void xhci_kick_kxhcd(struct xhci_hcd *xhci)
+{
+	wake_up(&kxhcd_wait);
+}
+
+static int xhc_thread(void *data)
+{
+	struct xhci_hcd *xhci = data;
+	struct usb_hcd *secondary_hcd, *hcd = xhci_to_hcd(xhci);
+
+	do {
+		if (xhci->xhc_state & XHCI_STATE_DYING) {
+
+			if (!usb_hcd_is_primary_hcd(hcd))
+				secondary_hcd = hcd;
+			else
+				secondary_hcd = xhci->shared_hcd;
+
+			while (!test_bit(HCD_FLAG_RH_CLEANED,
+					 &xhci->main_hcd->flags) ||
+			       !test_bit(HCD_FLAG_RH_CLEANED,
+					 &xhci->shared_hcd->flags)) {
+
+				xhci_dbg(xhci, "hcd flags 0x%x 0x%x\n",
+					 xhci->main_hcd->flags,
+					 xhci->shared_hcd->flags);
+				msleep(1000);
+			}
+
+			xhci_warn(xhci, " HCRST !\n");
+
+			if (HCD_DEAD(hcd)) {
+#ifdef CONFIG_USB_XHCI_HCD_DEBUGGING
+				/* Tell the event ring poll function
+				 * not to reschedule
+				 */
+				xhci->zombie = 1;
+				del_timer_sync(&xhci->event_ring_timer);
+#endif
+				xhci_mem_cleanup(xhci);
+				spin_lock_irq(&xhci->lock);
+				xhci_reset(xhci);
+				spin_unlock_irq(&xhci->lock);
+
+				xhci->xhc_state &= ~XHCI_STATE_DYING;
+
+				if (xhci_init(hcd->primary_hcd)) {
+					xhci_warn(xhci,
+						 "unable to init xhci_hcd\n");
+					continue;
+				}
+
+				if (!xhci_run(hcd->primary_hcd)) {
+					clear_bit(HCD_FLAG_DEAD, &hcd->flags);
+					xhci_run(secondary_hcd);
+					clear_bit(HCD_FLAG_DEAD,
+						  &secondary_hcd->flags);
+				}
+
+				xhci->xhc_state &= ~XHCI_STATE_HALTED;
+				hcd->state = HC_STATE_RUNNING;
+				xhci->shared_hcd->state = HC_STATE_RUNNING;
+
+				clear_bit(HCD_FLAG_RH_CLEANED,
+					  &xhci->main_hcd->flags);
+				clear_bit(HCD_FLAG_RH_CLEANED,
+					  &xhci->shared_hcd->flags);
+
+				usb_hc_post_reset(xhci->main_hcd);
+				usb_hc_post_reset(xhci->shared_hcd);
+			} else {
+				xhci_err(xhci, "xHC is not dead, skip hcrst\n");
+			}
+		}
+		wait_event_interruptible(kxhcd_wait,
+					(xhci->xhc_state & XHCI_STATE_DYING) ||
+					kthread_should_stop());
+
+	} while (!kthread_should_stop());
+
+	xhci_dbg(xhci, "%s exits\n", __func__);
+
+	return 0;
+}
+
 int xhci_gen_setup(struct usb_hcd *hcd, xhci_get_quirks_t get_quirks)
 {
 	struct xhci_hcd		*xhci;
 	struct device		*dev = hcd->self.controller;
 	int			retval;
-	u32			temp;
 
 	/* Accept arbitrarily long scatter-gather lists */
 	hcd->self.sg_tablesize = ~0;
@@ -4697,15 +4784,14 @@ int xhci_gen_setup(struct usb_hcd *hcd, xhci_get_quirks_t get_quirks)
 		/* xHCI private pointer was set in xhci_pci_probe for the second
 		 * registered roothub.
 		 */
-		xhci = hcd_to_xhci(hcd);
-		temp = xhci_readl(xhci, &xhci->cap_regs->hcc_params);
-		if (HCC_64BIT_ADDR(temp)) {
-			xhci_dbg(xhci, "Enabling 64-bit DMA addresses.\n");
-			dma_set_mask(hcd->self.controller, DMA_BIT_MASK(64));
-		} else {
-			dma_set_mask(hcd->self.controller, DMA_BIT_MASK(32));
-		}
 		return 0;
+	}
+
+	kxhcd_task = kthread_run(xhc_thread, xhci, "kxhcd");
+
+	if (IS_ERR(kxhcd_task)) {
+		xhci_warn(xhci, "unable to start kxhcd\n");
+		return -ENOMEM;
 	}
 
 	xhci->cap_regs = hcd->regs;
@@ -4743,12 +4829,12 @@ int xhci_gen_setup(struct usb_hcd *hcd, xhci_get_quirks_t get_quirks)
 		goto error;
 	xhci_dbg(xhci, "Reset complete\n");
 
-	temp = xhci_readl(xhci, &xhci->cap_regs->hcc_params);
-	if (HCC_64BIT_ADDR(temp)) {
+	/* Set dma_mask and coherent_dma_mask to 64-bits,
+	 * if xHC supports 64-bit addressing */
+	if (HCC_64BIT_ADDR(xhci->hcc_params) &&
+			!dma_set_mask(dev, DMA_BIT_MASK(64))) {
 		xhci_dbg(xhci, "Enabling 64-bit DMA addresses.\n");
-		dma_set_mask(hcd->self.controller, DMA_BIT_MASK(64));
-	} else {
-		dma_set_mask(hcd->self.controller, DMA_BIT_MASK(32));
+		dma_set_coherent_mask(dev, DMA_BIT_MASK(64));
 	}
 
 	xhci_dbg(xhci, "Calling HCD init\n");
@@ -4807,6 +4893,7 @@ module_init(xhci_hcd_init);
 
 static void __exit xhci_hcd_cleanup(void)
 {
+	kthread_stop(kxhcd_task);
 	xhci_unregister_pci();
 	xhci_unregister_plat();
 }

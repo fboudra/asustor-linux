@@ -74,6 +74,7 @@ enum dma_transaction_type {
 	DMA_SLAVE,
 	DMA_CYCLIC,
 	DMA_INTERLEAVE,
+	DMA_CRC32C,
 /* last transaction type for creation of the capabilities mask */
 	DMA_TX_TYPE_END,
 };
@@ -182,6 +183,8 @@ struct dma_interleaved_template {
  *  operation it continues the calculation with new sources
  * @DMA_PREP_FENCE - tell the driver that subsequent operations depend
  *  on the result of this operation
+ * @DMA_PREP_PQ_MULT - tell the driver that this is a mult request
+ * @DMA_PREP_PQ_SUM_PRODUCT - tell the driver that this is a sum product request
  */
 enum dma_ctrl_flags {
 	DMA_PREP_INTERRUPT = (1 << 0),
@@ -194,6 +197,8 @@ enum dma_ctrl_flags {
 	DMA_PREP_PQ_DISABLE_Q = (1 << 7),
 	DMA_PREP_CONTINUE = (1 << 8),
 	DMA_PREP_FENCE = (1 << 9),
+	DMA_PREP_PQ_MULT = (1 << 10),
+	DMA_PREP_PQ_SUM_PRODUCT = (1 << 11),
 };
 
 /**
@@ -583,6 +588,9 @@ struct dma_device {
 		struct scatterlist *dst_sg, unsigned int dst_nents,
 		struct scatterlist *src_sg, unsigned int src_nents,
 		unsigned long flags);
+	struct dma_async_tx_descriptor *(*device_prep_dma_crc32c)(
+		struct dma_chan *chan, dma_addr_t src,
+		size_t len, u32 *seed, unsigned long flags);
 
 	struct dma_async_tx_descriptor *(*device_prep_slave_sg)(
 		struct dma_chan *chan, struct scatterlist *sgl,
@@ -1034,6 +1042,11 @@ struct dma_pinned_list {
 
 struct dma_pinned_list *dma_pin_iovec_pages(struct iovec *iov, size_t len);
 void dma_unpin_iovec_pages(struct dma_pinned_list* pinned_list);
+
+#ifdef CONFIG_SPLICE_NET_DMA_SUPPORT
+struct dma_pinned_list *dma_pin_kernel_iovec_pages(struct iovec *iov, size_t len);
+void dma_unpin_kernel_iovec_pages(struct dma_pinned_list* pinned_list);
+#endif
 
 dma_cookie_t dma_memcpy_to_iovec(struct dma_chan *chan, struct iovec *iov,
 	struct dma_pinned_list *pinned_list, unsigned char *kdata, size_t len);

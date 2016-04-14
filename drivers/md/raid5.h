@@ -458,6 +458,9 @@ struct r5conf {
 	 * the new thread here until we fully activate the array.
 	 */
 	struct md_thread	*thread;
+#ifdef ASUSTOR_PATCH
+	int			revalidate_flag;
+#endif
 };
 
 /*

@@ -21,6 +21,7 @@
 #include <linux/smp.h>
 #include <linux/clk.h>
 #include <linux/of.h>
+#include <linux/of_address.h>
 #include <linux/mbus.h>
 #include <asm/cacheflush.h>
 #include <asm/smp_plat.h>
@@ -28,6 +29,9 @@
 #include "armada-370-xp.h"
 #include "pmsu.h"
 #include "coherency.h"
+
+#define AXP_BOOTROM_BASE 0xfff00000
+#define AXP_BOOTROM_SIZE 0x100000
 
 void __init set_secondary_cpus_clock(void)
 {
@@ -67,6 +71,7 @@ void __init set_secondary_cpus_clock(void)
 		if (cpu != thiscpu) {
 			cpu_clk = of_clk_get(np, 0);
 			clk_set_rate(cpu_clk, rate);
+			clk_prepare_enable(cpu_clk);
 		}
 	}
 }
@@ -81,36 +86,47 @@ static int __cpuinit armada_xp_boot_secondary(unsigned int cpu,
 {
 	pr_info("Booting CPU %d\n", cpu);
 
-	armada_xp_boot_cpu(cpu, armada_xp_secondary_startup);
+	mvebu_pmsu_set_cpu_boot_addr(cpu, armada_xp_secondary_startup);
+	mvebu_boot_cpu(cpu);
 
 	return 0;
 }
 
 static void __init armada_xp_smp_init_cpus(void)
 {
-	unsigned int i, ncores;
-	ncores = coherency_get_cpu_count();
+	unsigned int ncores = num_possible_cpus();
 
-	/* Limit possible CPUs to defconfig */
-	if (ncores > nr_cpu_ids) {
-		pr_warn("SMP: %d CPUs physically present. Only %d configured.",
-			ncores, nr_cpu_ids);
-		pr_warn("Clipping CPU count to %d\n", nr_cpu_ids);
-		ncores = nr_cpu_ids;
-	}
-
-	for (i = 0; i < ncores; i++)
-		set_cpu_possible(i, true);
+	if (ncores == 0 || ncores > ARMADA_XP_MAX_CPUS)
+		panic("Invalid number of CPUs in DT\n");
 
 	set_smp_cross_call(armada_mpic_send_doorbell);
 }
 
 void __init armada_xp_smp_prepare_cpus(unsigned int max_cpus)
 {
+	struct device_node *node;
+	struct resource res;
+	int err;
+
 	set_secondary_cpus_clock();
 	flush_cache_all();
-	set_cpu_coherent(cpu_logical_map(smp_processor_id()), 0);
-	mvebu_mbus_add_window("bootrom", 0xfff00000, SZ_1M);
+	set_cpu_coherent();
+
+	/*
+	 * In order to boot the secondary CPUs we need to ensure
+	 * the bootROM is mapped at the correct address.
+	 */
+	node = of_find_compatible_node(NULL, NULL, "marvell,bootrom");
+	if (!node)
+		panic("Cannot find 'marvell,bootrom' compatible node");
+
+	err = of_address_to_resource(node, 0, &res);
+	if (err < 0)
+		panic("Cannot get 'bootrom' node address");
+
+	if (res.start != AXP_BOOTROM_BASE ||
+	    resource_size(&res) != AXP_BOOTROM_SIZE)
+		panic("The address for the BootROM is incorrect");
 }
 
 struct smp_operations armada_xp_smp_ops __initdata = {

@@ -277,7 +277,6 @@ static int powernow_k6_cpu_exit(struct cpufreq_policy *policy)
 		if (i == max_multiplier)
 			powernow_k6_set_state(policy, i);
 	}
-	cpufreq_frequency_table_put_attr(policy->cpu);
 	return 0;
 }
 
@@ -300,7 +299,6 @@ static struct cpufreq_driver powernow_k6_driver = {
 	.exit		= powernow_k6_cpu_exit,
 	.get		= powernow_k6_get,
 	.name		= "powernow-k6",
-	.owner		= THIS_MODULE,
 	.attr		= powernow_k6_attr,
 };
 

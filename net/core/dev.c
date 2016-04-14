@@ -3851,8 +3851,17 @@ static gro_result_t napi_skb_finish(gro_result_t ret, struct sk_buff *skb)
 		break;
 
 	case GRO_MERGED_FREE:
-		if (NAPI_GRO_CB(skb)->free == NAPI_GRO_FREE_STOLEN_HEAD)
+		if (NAPI_GRO_CB(skb)->free == NAPI_GRO_FREE_STOLEN_HEAD) {
+#ifdef CONFIG_NET_SKB_RECYCLE
+			/* Workaround for the cases when recycle callback was not called */
+			if (skb->skb_recycle) {
+				/* Sign that skb is not available for recycle */
+				skb->hw_cookie |= BIT(0);
+				skb->skb_recycle(skb);
+			}
+#endif /* CONFIG_NET_SKB_RECYCLE */
 			kmem_cache_free(skbuff_head_cache, skb);
+		}
 		else
 			__kfree_skb(skb);
 		break;
@@ -5563,11 +5572,19 @@ void netdev_stats_to_stats64(struct rtnl_link_stats64 *stats64,
 	memcpy(stats64, netdev_stats, sizeof(*stats64));
 #else
 	size_t i, n = sizeof(*stats64) / sizeof(u64);
+#ifdef ASUSTOR_PATCH
+	const unsigned long long *src = (const unsigned long long*)netdev_stats;
+#else
 	const unsigned long *src = (const unsigned long *)netdev_stats;
+#endif	
 	u64 *dst = (u64 *)stats64;
-
+#ifdef ASUSTOR_PATCH
+	BUILD_BUG_ON(sizeof(*netdev_stats) / sizeof(unsigned long long) !=
+		     sizeof(*stats64) / sizeof(u64));
+#else
 	BUILD_BUG_ON(sizeof(*netdev_stats) / sizeof(unsigned long) !=
 		     sizeof(*stats64) / sizeof(u64));
+#endif
 	for (i = 0; i < n; i++)
 		dst[i] = src[i];
 #endif

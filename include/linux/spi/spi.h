@@ -74,7 +74,7 @@ struct spi_device {
 	struct spi_master	*master;
 	u32			max_speed_hz;
 	u8			chip_select;
-	u8			mode;
+	u16			mode;
 #define	SPI_CPHA	0x01			/* clock phase */
 #define	SPI_CPOL	0x02			/* clock polarity */
 #define	SPI_MODE_0	(0|0)			/* (original MicroWire) */
@@ -87,6 +87,7 @@ struct spi_device {
 #define	SPI_LOOP	0x20			/* loopback mode */
 #define	SPI_NO_CS	0x40			/* 1 dev/bus, no chipselect */
 #define	SPI_READY	0x80			/* slave pulls low to pause */
+#define	SPI_1BYTE_CS	0x100			/* switch CS every byte */
 	u8			bits_per_word;
 	int			irq;
 	void			*controller_state;
@@ -233,6 +234,8 @@ static inline void spi_unregister_driver(struct spi_driver *sdrv)
  *	suported. If set, the SPI core will reject any transfer with an
  *	unsupported bits_per_word. If not set, this value is simply ignored,
  *	and it's up to the individual driver to perform any validation.
+ * @min_speed_hz: Lowest supported transfer speed
+ * @max_speed_hz: Highest supported transfer speed
  * @flags: other constraints relevant to this driver
  * @bus_lock_spinlock: spinlock for SPI bus locking
  * @bus_lock_mutex: mutex for SPI bus locking
@@ -308,6 +311,10 @@ struct spi_master {
 
 	/* bitmask of supported bits_per_word for transfers */
 	u32			bits_per_word_mask;
+
+	/* limits on transfer speed */
+	u32			min_speed_hz;
+	u32			max_speed_hz;
 
 	/* other constraints relevant to this driver */
 	u16			flags;

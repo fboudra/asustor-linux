@@ -28,7 +28,12 @@
  * Should be called as the first thing in ->setattr implementations,
  * possibly after taking additional locks.
  */
+#ifdef ASUSTOR_PATCH_ASACL
+/* Patch purpose: ASACL */
+int inode_change_ok(struct inode *inode, struct iattr *attr)
+#else /* ASUSTOR_PATCH_ASACL */
 int inode_change_ok(const struct inode *inode, struct iattr *attr)
+#endif /* ASUSTOR_PATCH_ASACL */
 {
 	unsigned int ia_valid = attr->ia_valid;
 

@@ -639,6 +639,7 @@ const struct file_operations ext4_file_operations = {
 	.fsync		= ext4_sync_file,
 	.splice_read	= generic_file_splice_read,
 	.splice_write	= generic_file_splice_write,
+	.splice_from_socket = generic_splice_from_socket,
 	.fallocate	= ext4_fallocate,
 };
 
@@ -649,7 +650,12 @@ const struct inode_operations ext4_file_inode_operations = {
 	.getxattr	= generic_getxattr,
 	.listxattr	= ext4_listxattr,
 	.removexattr	= generic_removexattr,
+#ifdef ASUSTOR_PATCH_ASACL
+	/* Patch purpose: ASACL */
+	.get_acl	= ext4_get_posix_acl,
+#else /* ASUSTOR_PATCH_ASACL */
 	.get_acl	= ext4_get_acl,
+#endif /* ASUSTOR_PATCH_ASACL */	
 	.fiemap		= ext4_fiemap,
 };
 

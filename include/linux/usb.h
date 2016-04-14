@@ -548,7 +548,9 @@ struct usb_device {
 	char *serial;
 
 	struct list_head filelist;
-
+#ifdef CONFIG_USB_DEVICE_CLASS
+    struct device *usb_classdev;
+#endif
 	int maxchild;
 
 	u32 quirks;

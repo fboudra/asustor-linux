@@ -282,7 +282,7 @@
 
 int sysctl_tcp_fin_timeout __read_mostly = TCP_FIN_TIMEOUT;
 
-int sysctl_tcp_min_tso_segs __read_mostly = 2;
+int sysctl_tcp_min_tso_segs __read_mostly = 22;
 
 struct percpu_counter tcp_orphan_count;
 EXPORT_SYMBOL_GPL(tcp_orphan_count);
@@ -1617,6 +1617,20 @@ int tcp_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 
 		if (skb)
 			available = TCP_SKB_CB(skb)->seq + skb->len - (*seq);
+#ifdef CONFIG_SPLICE_NET_DMA_SUPPORT
+		if (msg->msg_flags & MSG_KERNSPACE) {
+			if ((available >= target) &&
+			    (len > sysctl_tcp_dma_copybreak) && !(flags & MSG_PEEK) &&
+			    !sysctl_tcp_low_latency &&
+			    dma_find_channel(DMA_MEMCPY)) {
+				preempt_enable_no_resched();
+				tp->ucopy.pinned_list =
+						dma_pin_kernel_iovec_pages(msg->msg_iov, len);
+			} else {
+				preempt_enable_no_resched();
+			}
+		}
+#else
 		if ((available < target) &&
 		    (len > sysctl_tcp_dma_copybreak) && !(flags & MSG_PEEK) &&
 		    !sysctl_tcp_low_latency &&
@@ -1627,6 +1641,7 @@ int tcp_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg,
 		} else {
 			preempt_enable_no_resched();
 		}
+#endif
 	}
 #endif
 
@@ -1868,8 +1883,14 @@ do_prequeue:
 			} else
 #endif
 			{
-				err = skb_copy_datagram_iovec(skb, offset,
-						msg->msg_iov, used);
+#ifdef CONFIG_SPLICE_NET_DMA_SUPPORT
+				if (msg->msg_flags & MSG_KERNSPACE)
+					err = skb_copy_datagram_to_kernel_iovec(skb,
+							offset, msg->msg_iov, used);
+				else
+#endif
+					err = skb_copy_datagram_iovec(skb, offset,
+							msg->msg_iov, used);
 				if (err) {
 					/* Exception. Bailout! */
 					if (!copied)
@@ -1935,7 +1956,12 @@ skip_copy:
 	tp->ucopy.dma_chan = NULL;
 
 	if (tp->ucopy.pinned_list) {
-		dma_unpin_iovec_pages(tp->ucopy.pinned_list);
+#ifdef CONFIG_SPLICE_NET_DMA_SUPPORT
+		if(msg->msg_flags & MSG_KERNSPACE)
+			dma_unpin_kernel_iovec_pages(tp->ucopy.pinned_list);
+		else
+#endif
+			dma_unpin_iovec_pages(tp->ucopy.pinned_list);
 		tp->ucopy.pinned_list = NULL;
 	}
 #endif

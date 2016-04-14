@@ -13,9 +13,14 @@
 
 #include <linux/platform_device.h>
 #include <linux/module.h>
+#include <linux/usb/phy.h>
 #include <linux/slab.h>
+#include <linux/of.h>
+#include <linux/dma-mapping.h>
+#include <linux/of_device.h>
 
 #include "xhci.h"
+#include "xhci-mvebu.h"
 
 static void xhci_plat_quirks(struct device *dev, struct xhci_hcd *xhci)
 {
@@ -82,7 +87,8 @@ static const struct hc_driver xhci_plat_xhci_driver = {
 	.bus_resume =		xhci_bus_resume,
 };
 
-static int xhci_plat_probe(struct platform_device *pdev)
+int common_xhci_plat_probe(struct platform_device *pdev,
+			   void *priv)
 {
 	const struct hc_driver	*driver;
 	struct xhci_hcd		*xhci;
@@ -103,6 +109,15 @@ static int xhci_plat_probe(struct platform_device *pdev)
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res)
 		return -ENODEV;
+
+	/* Initialize dma_mask and coherent_dma_mask to 32-bits */
+	ret = dma_set_coherent_mask(&pdev->dev, DMA_BIT_MASK(32));
+	if (ret)
+		return ret;
+	if (!pdev->dev.dma_mask)
+		pdev->dev.dma_mask = &pdev->dev.coherent_dma_mask;
+	else
+		dma_set_mask(&pdev->dev, DMA_BIT_MASK(32));
 
 	hcd = usb_create_hcd(driver, &pdev->dev, dev_name(&pdev->dev));
 	if (!hcd)
@@ -125,6 +140,12 @@ static int xhci_plat_probe(struct platform_device *pdev)
 		goto release_mem_region;
 	}
 
+	/*
+	 * Make the host wait until internal buffer is available before issuing
+	 * data request from device - MARVELL proprietary XHCI MAC register
+	 */
+	set_bit(7, hcd->regs + 0x380c);
+
 	ret = usb_add_hcd(hcd, irq, IRQF_SHARED);
 	if (ret)
 		goto unmap_registers;
@@ -132,11 +153,24 @@ static int xhci_plat_probe(struct platform_device *pdev)
 	/* USB 2.0 roothub is stored in the platform_device now. */
 	hcd = dev_get_drvdata(&pdev->dev);
 	xhci = hcd_to_xhci(hcd);
+	xhci->priv = priv;
 	xhci->shared_hcd = usb_create_shared_hcd(driver, &pdev->dev,
 			dev_name(&pdev->dev), hcd);
 	if (!xhci->shared_hcd) {
 		ret = -ENOMEM;
 		goto dealloc_usb2_hcd;
+	}
+
+	hcd->phy = devm_usb_get_phy_by_phandle(&pdev->dev, "usb-phy", 0);
+	if (IS_ERR(hcd->phy)) {
+		ret = PTR_ERR(hcd->phy);
+		if (ret == -EPROBE_DEFER)
+			goto put_usb3_hcd;
+		hcd->phy = NULL;
+	} else {
+		ret = usb_phy_init(hcd->phy);
+		if (ret)
+			goto put_usb3_hcd;
 	}
 
 	/*
@@ -147,9 +181,12 @@ static int xhci_plat_probe(struct platform_device *pdev)
 
 	ret = usb_add_hcd(xhci->shared_hcd, irq, IRQF_SHARED);
 	if (ret)
-		goto put_usb3_hcd;
+		goto disable_usb_phy;
 
 	return 0;
+
+disable_usb_phy:
+	usb_phy_shutdown(hcd->phy);
 
 put_usb3_hcd:
 	usb_put_hcd(xhci->shared_hcd);
@@ -169,12 +206,14 @@ put_hcd:
 	return ret;
 }
 
-static int xhci_plat_remove(struct platform_device *dev)
+int common_xhci_plat_remove(struct platform_device *dev)
 {
 	struct usb_hcd	*hcd = platform_get_drvdata(dev);
 	struct xhci_hcd	*xhci = hcd_to_xhci(hcd);
 
 	usb_remove_hcd(xhci->shared_hcd);
+	if (hcd->phy)
+		usb_phy_shutdown(hcd->phy);
 	usb_put_hcd(xhci->shared_hcd);
 
 	usb_remove_hcd(hcd);
@@ -186,11 +225,136 @@ static int xhci_plat_remove(struct platform_device *dev)
 	return 0;
 }
 
+static int default_xhci_plat_probe(struct platform_device *pdev)
+{
+	return common_xhci_plat_probe(pdev, NULL);
+}
+
+static int default_xhci_plat_remove(struct platform_device *pdev)
+{
+	return common_xhci_plat_remove(pdev);
+}
+
+struct xhci_plat_ops {
+	int (*probe)(struct platform_device *);
+	int (*remove)(struct platform_device *);
+	void (*resume)(struct device *);
+};
+
+static struct xhci_plat_ops xhci_plat_default = {
+	.probe = default_xhci_plat_probe,
+	.remove =  default_xhci_plat_remove,
+};
+
+#ifdef CONFIG_OF
+struct xhci_plat_ops xhci_plat_mvebu = {
+	.probe =  xhci_mvebu_probe,
+	.remove =  xhci_mvebu_remove,
+	.resume =  xhci_mvebu_resume,
+};
+
+static const struct of_device_id usb_xhci_of_match[] = {
+	{
+		.compatible = "xhci-platform",
+		.data = (void *) &xhci_plat_default,
+	},
+	{
+		.compatible = "marvell,xhci-armada-375",
+		.data = (void *) &xhci_plat_mvebu,
+	},
+	{
+		.compatible = "marvell,xhci-armada-380",
+		.data = (void *) &xhci_plat_mvebu,
+	},
+	{ },
+};
+MODULE_DEVICE_TABLE(of, usb_xhci_of_match);
+#endif
+
+static int xhci_plat_probe(struct platform_device *pdev)
+{
+	const struct xhci_plat_ops *plat_of = &xhci_plat_default;
+
+	if (pdev->dev.of_node) {
+		const struct of_device_id *match =
+			of_match_device(usb_xhci_of_match, &pdev->dev);
+		if (!match)
+			return -ENODEV;
+		plat_of = match->data;
+	}
+
+	if (!plat_of || !plat_of->probe)
+		return  -ENODEV;
+
+	return plat_of->probe(pdev);
+}
+
+static int xhci_plat_remove(struct platform_device *pdev)
+{
+	const struct xhci_plat_ops *plat_of = &xhci_plat_default;
+
+	if (pdev->dev.of_node) {
+		const struct of_device_id *match =
+			of_match_device(usb_xhci_of_match, &pdev->dev);
+		if (!match)
+			return -ENODEV;
+		plat_of = match->data;
+	}
+
+	if (!plat_of || !plat_of->remove)
+		return  -ENODEV;
+
+	return plat_of->remove(pdev);
+}
+
+#ifdef CONFIG_PM
+static int xhci_plat_suspend(struct device *dev)
+{
+	struct usb_hcd	*hcd = dev_get_drvdata(dev);
+	struct xhci_hcd	*xhci = hcd_to_xhci(hcd);
+
+	return xhci_suspend(xhci);
+}
+
+static int xhci_plat_resume(struct device *dev)
+{
+	const struct xhci_plat_ops *plat_of = &xhci_plat_default;
+	struct usb_hcd	*hcd = dev_get_drvdata(dev);
+	struct xhci_hcd	*xhci = hcd_to_xhci(hcd);
+
+	if (dev->of_node) {
+		const struct of_device_id *match =
+			of_match_device(usb_xhci_of_match, dev);
+		if (!match)
+			return -ENODEV;
+		plat_of = match->data;
+	}
+
+	if (!plat_of)
+		return -ENODEV;
+
+	if (plat_of->resume)
+		plat_of->resume(dev);
+
+	return xhci_resume(xhci, 0);
+}
+
+static const struct dev_pm_ops xhci_plat_pm_ops = {
+	SET_SYSTEM_SLEEP_PM_OPS(xhci_plat_suspend, xhci_plat_resume)
+};
+#define DEV_PM_OPS	(&xhci_plat_pm_ops)
+#else
+#define DEV_PM_OPS	NULL
+#endif /* CONFIG_PM */
+
 static struct platform_driver usb_xhci_driver = {
-	.probe	= xhci_plat_probe,
-	.remove	= xhci_plat_remove,
+	.probe		= xhci_plat_probe,
+	.remove		= xhci_plat_remove,
+	.shutdown	= xhci_plat_remove,
 	.driver	= {
 		.name = "xhci-hcd",
+		.pm = DEV_PM_OPS,
+		.of_match_table = of_match_ptr(usb_xhci_of_match),
 	},
 };
 MODULE_ALIAS("platform:xhci-hcd");

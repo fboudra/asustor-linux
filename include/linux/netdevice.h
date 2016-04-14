@@ -159,7 +159,33 @@ static inline bool dev_xmit_complete(int rc)
  *	Old network device statistics. Fields are native words
  *	(unsigned long) so they can be read and written atomically.
  */
-
+#ifdef ASUSTOR_PATCH
+struct net_device_stats {
+	unsigned long long	rx_packets;
+	unsigned long long	tx_packets;
+	unsigned long long	rx_bytes;
+	unsigned long long	tx_bytes;
+	unsigned long long	rx_errors;
+	unsigned long long	tx_errors;
+	unsigned long long	rx_dropped;
+	unsigned long long	tx_dropped;
+	unsigned long long	multicast;
+	unsigned long long	collisions;
+	unsigned long long	rx_length_errors;
+	unsigned long long	rx_over_errors;
+	unsigned long long	rx_crc_errors;
+	unsigned long long	rx_frame_errors;
+	unsigned long long	rx_fifo_errors;
+	unsigned long long	rx_missed_errors;
+	unsigned long long	tx_aborted_errors;
+	unsigned long long	tx_carrier_errors;
+	unsigned long long	tx_fifo_errors;
+	unsigned long long	tx_heartbeat_errors;
+	unsigned long long	tx_window_errors;
+	unsigned long long	rx_compressed;
+	unsigned long long	tx_compressed;
+};
+#else
 struct net_device_stats {
 	unsigned long	rx_packets;
 	unsigned long	tx_packets;
@@ -185,6 +211,7 @@ struct net_device_stats {
 	unsigned long	rx_compressed;
 	unsigned long	tx_compressed;
 };
+#endif
 
 
 #include <linux/cache.h>

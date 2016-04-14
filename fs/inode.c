@@ -17,6 +17,10 @@
 #include <linux/prefetch.h>
 #include <linux/buffer_head.h> /* for inode_has_buffers */
 #include <linux/ratelimit.h>
+#ifdef ASUSTOR_PATCH_ASACL
+/* Patch purpose: ASACL */
+#include <linux/asacl.h>
+#endif /* ASUSTOR_PATCH_ASACL */
 #include "internal.h"
 
 /*
@@ -183,9 +187,26 @@ int inode_init_always(struct super_block *sb, struct inode *inode)
 	inode->i_private = NULL;
 	inode->i_mapping = mapping;
 	INIT_HLIST_HEAD(&inode->i_dentry);	/* buggered by rcu freeing */
+
+#ifdef ASUSTOR_PATCH_ASACL
+	/* Patch purpose: ASACL */
+
+#ifdef CONFIG_FS_POSIX_ACL
+	if (IS_POSIXACL(inode))
+		inode->i_acl = inode->i_default_acl = ACL_NOT_CACHED;
+#endif /* CONFIG_FS_POSIX_ACL */
+#ifdef CONFIG_FS_ASACL
+	if (IS_ASACL(inode))
+		inode->i_asacl = ACL_NOT_CACHED;
+#endif /* CONFIG_FS_ASACL */
+
+#else /* ASUSTOR_PATCH_ASACL */
+
 #ifdef CONFIG_FS_POSIX_ACL
 	inode->i_acl = inode->i_default_acl = ACL_NOT_CACHED;
 #endif
+
+#endif /* ASUSTOR_PATCH_ASACL */
 
 #ifdef CONFIG_FSNOTIFY
 	inode->i_fsnotify_mask = 0;
@@ -238,12 +259,37 @@ void __destroy_inode(struct inode *inode)
 		atomic_long_dec(&inode->i_sb->s_remove_count);
 	}
 
+#ifdef ASUSTOR_PATCH_ASACL
+	/* Patch purpose: ASACL */
+
+#ifdef CONFIG_FS_POSIX_ACL
+	if (IS_POSIXACL(inode))
+	{
+		if (inode->i_acl && inode->i_acl != ACL_NOT_CACHED)
+			posix_acl_release(inode->i_acl);
+		if (inode->i_default_acl && inode->i_default_acl != ACL_NOT_CACHED)
+			posix_acl_release(inode->i_default_acl);
+	}
+#endif /* CONFIG_FS_POSIX_ACL */
+#ifdef CONFIG_FS_ASACL
+	if (IS_ASACL(inode))
+	{
+		if (inode->i_asacl && inode->i_asacl != ACL_NOT_CACHED)
+			Asacl_Release(inode->i_asacl);
+	}
+#endif /* CONFIG_FS_ASACL */
+
+#else /* ASUSTOR_PATCH_ASACL */
+
 #ifdef CONFIG_FS_POSIX_ACL
 	if (inode->i_acl && inode->i_acl != ACL_NOT_CACHED)
 		posix_acl_release(inode->i_acl);
 	if (inode->i_default_acl && inode->i_default_acl != ACL_NOT_CACHED)
 		posix_acl_release(inode->i_default_acl);
 #endif
+
+#endif /* ASUSTOR_PATCH_ASACL */
+
 	this_cpu_dec(nr_inodes);
 }
 EXPORT_SYMBOL(__destroy_inode);

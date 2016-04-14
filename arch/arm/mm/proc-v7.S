@@ -180,6 +180,14 @@ ENDPROC(cpu_pj4b_do_idle)
 __v7_ca5mp_setup:
 __v7_ca9mp_setup:
 	mov	r10, #(1 << 0)			@ TLB ops broadcasting
+#ifdef CONFIG_CPU_L1_CACHE_PREF_ENABLE
+	orr	r10, r10, #(1 << 2)
+#endif
+#ifdef CONFIG_CPU_DYNAMIC_CLOCK_GATING_ENABLE
+	mrc	p15, 0,	r0, c15, c0, 0
+	orr     r0, r0, #(1 << 0)
+	mcr	p15, 0,	r0, c15, c0, 0
+#endif
 	b	1f
 __v7_ca7mp_setup:
 __v7_ca15mp_setup:
@@ -350,9 +358,7 @@ __v7_setup:
 #endif
 	adr	r5, v7_crval
 	ldmia	r5, {r5, r6}
-#ifdef CONFIG_CPU_ENDIAN_BE8
-	orr	r6, r6, #1 << 25		@ big-endian page tables
-#endif
+ ARM_BE8(orr	r6, r6, #1 << 25)		@ big-endian page tables
 #ifdef CONFIG_SWP_EMULATE
 	orr     r5, r5, #(1 << 10)              @ set SW bit in "clear"
 	bic     r6, r6, #(1 << 10)              @ clear it in "mmuset"

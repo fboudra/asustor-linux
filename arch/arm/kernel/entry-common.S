@@ -389,9 +389,7 @@ ENTRY(vector_swi)
 #else
  USER(	ldr	r10, [lr, #-4]		)	@ get SWI instruction
 #endif
-#ifdef CONFIG_CPU_ENDIAN_BE8
-	rev	r10, r10			@ little endian instruction
-#endif
+ ARM_BE8(rev	r10, r10)			@ little endian instruction
 
 #elif defined(CONFIG_AEABI)
 
@@ -558,10 +556,31 @@ ENDPROC(sys_fstatfs64_wrapper)
  * Note: off_4k (r5) is always units of 4K.  If we can't do the requested
  * offset, we return EINVAL.
  */
+
+#ifdef CONFIG_MV_8KB_SW_PAGE_SIZE_SUPPORT
+#define PGOFF_MASK 0x1
+#define PGOFF_SHIFT 1
+#elif defined(CONFIG_MV_16KB_SW_PAGE_SIZE_SUPPORT)
+#define PGOFF_MASK 0x3
+#define PGOFF_SHIFT 2
+#elif defined(CONFIG_MV_32KB_SW_PAGE_SIZE_SUPPORT)
+#define PGOFF_MASK 0x7
+#define PGOFF_SHIFT 3
+#elif defined(CONFIG_MV_64KB_SW_PAGE_SIZE_SUPPORT)
+#define PGOFF_MASK 0xF
+#define PGOFF_SHIFT 4
+#elif defined(CONFIG_MV_64KB_MMU_PAGE_SIZE_SUPPORT)
+#define PGOFF_MASK 0xF
+#define PGOFF_SHIFT 4
+#else
+#define PGOFF_MASK 0x0
+#define PGOFF_SHIFT 0
+#endif
+
 sys_mmap2:
-#if PAGE_SHIFT > 12
+#ifdef CONFIG_MV_LARGE_PAGE_SUPPORT
 		tst	r5, #PGOFF_MASK
-		moveq	r5, r5, lsr #PAGE_SHIFT - 12
+		moveq	r5, r5, lsr #PGOFF_SHIFT
 		streq	r5, [sp, #4]
 		beq	sys_mmap_pgoff
 		mov	r0, #-EINVAL

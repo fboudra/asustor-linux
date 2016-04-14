@@ -221,7 +221,12 @@ void putname(struct filename *name)
 }
 #endif
 
+#ifdef ASUSTOR_PATCH_ASACL
+/* Patch purpose: ASACL */
+static int check_posix_acl(struct inode *inode, int mask)
+#else /* ASUSTOR_PATCH_ASACL */
 static int check_acl(struct inode *inode, int mask)
+#endif /* ASUSTOR_PATCH_ASACL */
 {
 #ifdef CONFIG_FS_POSIX_ACL
 	struct posix_acl *acl;
@@ -266,6 +271,19 @@ static int check_acl(struct inode *inode, int mask)
 
 	return -EAGAIN;
 }
+
+#ifdef ASUSTOR_PATCH_ASACL
+/* Patch purpose: ASACL */
+
+// Create a new "check_acl" function that will support POSIX acl or ASACL depends on the situation.
+static int check_acl(struct inode *inode, int mask)
+{
+	if (IS_POSIXACL(inode))
+		return check_posix_acl(inode, mask);
+	else
+		return -EAGAIN;
+}
+#endif /* ASUSTOR_PATCH_ASACL */
 
 /*
  * This does the basic permission checking
@@ -3424,7 +3442,11 @@ int vfs_unlink(struct inode *dir, struct dentry *dentry)
  * writeout happening, and we don't want to prevent access to the directory
  * while waiting on the I/O.
  */
+#ifdef ASUSTOR_PATCH
+long do_unlinkat(int dfd, const char __user *pathname)
+#else
 static long do_unlinkat(int dfd, const char __user *pathname)
+#endif
 {
 	int error;
 	struct filename *name;
@@ -3483,6 +3505,9 @@ slashes:
 		S_ISDIR(dentry->d_inode->i_mode) ? -EISDIR : -ENOTDIR;
 	goto exit2;
 }
+#ifdef ASUSTOR_PATCH
+EXPORT_SYMBOL(do_unlinkat);
+#endif
 
 SYSCALL_DEFINE3(unlinkat, int, dfd, const char __user *, pathname, int, flag)
 {

@@ -420,8 +420,6 @@ static int centrino_cpu_exit(struct cpufreq_policy *policy)
 	if (!per_cpu(centrino_model, cpu))
 		return -ENODEV;
 
-	cpufreq_frequency_table_put_attr(cpu);
-
 	per_cpu(centrino_model, cpu) = NULL;
 
 	return 0;
@@ -575,7 +573,6 @@ static struct cpufreq_driver centrino_driver = {
 	.target		= centrino_target,
 	.get		= get_cur_freq,
 	.attr           = centrino_attr,
-	.owner		= THIS_MODULE,
 };
 
 /*

@@ -67,10 +67,12 @@
 #include <linux/gfp.h>
 #include <linux/of.h>
 #include <linux/of_irq.h>
+#include <linux/of_gpio.h>
 #include <scsi/scsi_host.h>
 #include <scsi/scsi_cmnd.h>
 #include <scsi/scsi_device.h>
 #include <linux/libata.h>
+#include <linux/dmaengine.h>
 
 #define DRV_NAME	"sata_mv"
 #define DRV_VERSION	"1.28"
@@ -2411,10 +2413,19 @@ static struct ata_queued_cmd *mv_get_active_qc(struct ata_port *ap)
 {
 	struct mv_port_priv *pp = ap->private_data;
 	struct ata_queued_cmd *qc;
+	struct ata_link *link = NULL;
 
 	if (pp->pp_flags & MV_PP_FLAG_NCQ_EN)
 		return NULL;
-	qc = ata_qc_from_tag(ap, ap->link.active_tag);
+
+	ata_for_each_link(link, ap, EDGE)
+		if (ata_link_active(link))
+			break;
+
+	if (!link)
+		link = &ap->link;
+
+	qc = ata_qc_from_tag(ap, link->active_tag);
 	if (qc && !(qc->tf.flags & ATA_TFLAG_POLLING))
 		return qc;
 	return NULL;
@@ -2799,6 +2810,9 @@ static void mv_process_crpb_entries(struct ata_port *ap, struct mv_port_priv *pp
 	/* Get the hardware queue position index */
 	in_index = (readl(port_mmio + EDMA_RSP_Q_IN_PTR)
 			>> EDMA_RSP_Q_PTR_SHIFT) & MV_MAX_Q_DEPTH_MASK;
+
+	dma_sync_single_for_cpu(ap->dev , (dma_addr_t) NULL,
+			(size_t) NULL, DMA_FROM_DEVICE);
 
 	/* Process new responses from since the last time we looked */
 	while (in_index != pp->resp_idx) {
@@ -4028,6 +4042,26 @@ static void mv_conf_mbus_windows(struct mv_host_priv *hpriv,
 	}
 }
 
+/**     mv_gpio_power_ctrl - Shut down SATA power supply via GPIO pins.
+ *	@enable: selection of enable/disable power supply
+ */
+static void mv_gpio_power_ctrl(struct platform_device *pdev, bool enable)
+{
+	struct device_node *np = pdev->dev.of_node;
+	int gpio_count, i, gpio;
+
+	if (np) {
+		gpio_count = of_gpio_named_count(np, "sd-gpios");
+		for (i = 0; i < gpio_count; i++) {
+			gpio = of_get_named_gpio(np, "sd-gpios", i);
+			if (enable == true)
+				gpio_set_value(gpio, GPIOF_OUT_INIT_HIGH);
+			else
+				gpio_set_value(gpio, GPIOF_OUT_INIT_LOW);
+		}
+	}
+}
+
 /**
  *      mv_platform_probe - handle a positive probe of an soc Marvell
  *      host
@@ -4050,6 +4084,9 @@ static int mv_platform_probe(struct platform_device *pdev)
 #if defined(CONFIG_HAVE_CLK)
 	int port;
 #endif
+
+	/* Enable GPIO power output */
+	mv_gpio_power_ctrl(pdev, true);
 
 	ata_print_version_once(&pdev->dev, DRV_VERSION);
 
@@ -4233,10 +4270,17 @@ static int mv_platform_resume(struct platform_device *pdev)
 
 	return 0;
 }
+
 #else
 #define mv_platform_suspend NULL
 #define mv_platform_resume NULL
 #endif
+
+void mv_platform_shutdown(struct platform_device *pdev)
+{
+	mv_platform_remove(pdev);
+	mv_gpio_power_ctrl(pdev, false);
+}
 
 #ifdef CONFIG_OF
 static struct of_device_id mv_sata_dt_ids[] = {
@@ -4252,6 +4296,7 @@ static struct platform_driver mv_platform_driver = {
 	.remove		= mv_platform_remove,
 	.suspend	= mv_platform_suspend,
 	.resume		= mv_platform_resume,
+	.shutdown	= mv_platform_shutdown,
 	.driver		= {
 		.name = DRV_NAME,
 		.owner = THIS_MODULE,

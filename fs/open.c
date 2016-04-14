@@ -148,6 +148,52 @@ COMPAT_SYSCALL_DEFINE2(truncate, const char __user *, path, compat_off_t, length
 }
 #endif
 
+#ifdef ASUSTOR_PATCH
+int do_file_ftruncate(struct file *file, loff_t length, int small)
+{
+	struct inode *inode;
+	struct dentry *dentry;
+	int error;
+
+	error = -EINVAL;
+	if (length < 0)
+		goto out;
+	error = -EBADF;
+	if (!file)
+		goto out;
+
+	/* explicitly opened as large or we are on 64-bit box */
+	if (file->f_flags & O_LARGEFILE)
+		small = 0;
+
+	dentry = file->f_path.dentry;
+	inode = dentry->d_inode;
+	error = -EINVAL;
+	if (!S_ISREG(inode->i_mode) || !(file->f_mode & FMODE_WRITE))
+		goto out;
+
+	error = -EINVAL;
+	/* Cannot ftruncate over 2^31 bytes without large file support */
+	if (small && length > MAX_NON_LFS)
+		goto out;
+
+	error = -EPERM;
+	if (IS_APPEND(inode))
+		goto out;
+
+	sb_start_write(inode->i_sb);
+	error = locks_verify_truncate(inode, file, length);
+	if (!error)
+		error = security_path_truncate(&file->f_path);
+	if (!error)
+		error = do_truncate(dentry, length, ATTR_MTIME|ATTR_CTIME, file);
+	sb_end_write(inode->i_sb);
+out:
+	return error;
+}
+EXPORT_SYMBOL_GPL(do_file_ftruncate);
+#endif
+
 static long do_sys_ftruncate(unsigned int fd, loff_t length, int small)
 {
 	struct inode *inode;

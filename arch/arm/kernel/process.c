@@ -40,6 +40,12 @@
 #include <asm/stacktrace.h>
 #include <asm/mach/time.h>
 
+#ifdef ASUSTOR_PATCH
+#include <linux/serial.h>
+#include <linux/termios.h>
+#include <linux/tty.h>
+#endif
+
 #ifdef CONFIG_CC_STACKPROTECTOR
 #include <linux/stackprotector.h>
 unsigned long __stack_chk_guard __read_mostly;
@@ -205,9 +211,34 @@ void machine_shutdown(void)
  */
 void machine_halt(void)
 {
+#ifdef ASUSTOR_PATCH
+	mm_segment_t oldfs; 
+	struct file  *pfTerm = NULL;
+	char bOutputBuffer[3];
+#endif
+
 	smp_send_stop();
 
 	local_irq_disable();
+
+#ifdef ASUSTOR_PATCH
+	// This patch is for marvel arm as10, to close power
+	pfTerm = filp_open("/dev/ttyS1", O_RDWR | O_NOCTTY | O_NONBLOCK, 0); 
+	oldfs = get_fs(); 
+	set_fs(KERNEL_DS); 	
+	
+	pfTerm->f_pos=0; 
+	
+	// as10 mcu power command
+	bOutputBuffer[0] = 0x10;
+	bOutputBuffer[1] = 0x01;
+	bOutputBuffer[2] = 0x01;
+
+	pfTerm->f_op->write(pfTerm,bOutputBuffer, sizeof(bOutputBuffer), &pfTerm->f_pos); 
+	
+	set_fs(oldfs); 	
+#endif
+	
 	while (1);
 }
 
@@ -238,8 +269,29 @@ void machine_power_off(void)
  */
 void machine_restart(char *cmd)
 {
-	smp_send_stop();
+#ifdef ASUSTOR_PATCH
+	mm_segment_t oldfs; 
+	struct file  *pfTerm = NULL;
+	char bOutputBuffer[3];
+#endif
 
+	smp_send_stop();
+#ifdef ASUSTOR_PATCH
+	// This patch is for marvel arm as10, to reboot nas
+	pfTerm = filp_open("/dev/ttyS1", O_RDWR | O_NOCTTY | O_NONBLOCK, 0); 
+	oldfs = get_fs(); 
+	set_fs(KERNEL_DS); 	
+	
+	pfTerm->f_pos=0; 
+	
+	// as10 mcu reboot command
+	bOutputBuffer[0] = 0x10;
+	bOutputBuffer[1] = 0x01;
+	bOutputBuffer[2] = 0x02;
+	pfTerm->f_op->write(pfTerm,bOutputBuffer, sizeof(bOutputBuffer), &pfTerm->f_pos); 
+	set_fs(oldfs); 	
+	mdelay(1000);
+#endif	
 	arm_pm_restart(reboot_mode, cmd);
 
 	/* Give a grace period for failure to restart of 1s */

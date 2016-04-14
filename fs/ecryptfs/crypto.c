@@ -37,15 +37,28 @@
 #include <asm/unaligned.h>
 #include "ecryptfs_kernel.h"
 
+#ifdef ASUSTOR_PATCH
+#include "../../crypto/ocf/cryptodev.h"
+wait_queue_head_t encrypt_waitq;
+static volatile u32 wake = 0;
+static atomic_t blocked;
+#endif
+
 static int
 ecryptfs_decrypt_page_offset(struct ecryptfs_crypt_stat *crypt_stat,
 			     struct page *dst_page, int dst_offset,
 			     struct page *src_page, int src_offset, int size,
+#ifdef ASUSTOR_PATCH
+			     void *priv, int iv_size,
+#endif
 			     unsigned char *iv);
 static int
 ecryptfs_encrypt_page_offset(struct ecryptfs_crypt_stat *crypt_stat,
 			     struct page *dst_page, int dst_offset,
 			     struct page *src_page, int src_offset, int size,
+#ifdef ASUSTOR_PATCH
+			     void *priv, int iv_size,
+#endif
 			     unsigned char *iv);
 
 /**
@@ -241,9 +254,10 @@ ecryptfs_init_crypt_stat(struct ecryptfs_crypt_stat *crypt_stat)
 void ecryptfs_destroy_crypt_stat(struct ecryptfs_crypt_stat *crypt_stat)
 {
 	struct ecryptfs_key_sig *key_sig, *key_sig_tmp;
-
+#ifndef ASUSTOR_PATCH
 	if (crypt_stat->tfm)
 		crypto_free_ablkcipher(crypt_stat->tfm);
+#endif
 	if (crypt_stat->hash_tfm)
 		crypto_free_hash(crypt_stat->hash_tfm);
 	list_for_each_entry_safe(key_sig, key_sig_tmp,
@@ -319,6 +333,137 @@ int virt_to_scatterlist(const void *addr, int size, struct scatterlist *sg,
 	return i;
 }
 
+#ifdef ASUSTOR_PATCH
+struct ocf_wr_priv {
+	u32 encrypt_ocf_wr_completed; /* Num of wr completions */
+	u32 encrypt_ocf_wr_pending; /* Num of wr pendings */
+	wait_queue_head_t encrypt_ocf_wr_queue; /* waiting Q, for wr completion */
+	u_int64_t ocf_cryptoid; /* OCF sesssion ID */
+};
+
+/* WARN: ordering between processes is not guaranteed due to 'wake' handling */
+static int encrypt_ocf_wr_cb(struct cryptop *crp)
+{
+	struct ocf_wr_priv *ocf_wr_priv;
+
+	if (atomic_read(&blocked) > 0) {
+		atomic_dec(&blocked);
+		wake = 1;
+		wake_up(&encrypt_waitq);
+	}
+
+	if(crp == NULL) {
+		printk("encrypt_ocf_wr_cb: crp is NULL!! \n");
+		return 0;
+	}
+
+	ocf_wr_priv = (struct ocf_wr_priv*)crp->crp_opaque;
+
+	ocf_wr_priv->encrypt_ocf_wr_completed++;
+
+	/* if no more pending for read, wake up the read task. */
+	if(ocf_wr_priv->encrypt_ocf_wr_completed == ocf_wr_priv->encrypt_ocf_wr_pending)
+		wake_up(&ocf_wr_priv->encrypt_ocf_wr_queue);
+
+	crypto_freereq(crp);
+	return 0;
+}
+
+static int encrypt_ocf_rd_cb(struct cryptop *crp)
+{
+    struct ocf_wr_priv *ocf_wr_priv;
+
+	if (atomic_read(&blocked) > 0) {
+		atomic_dec(&blocked);
+		wake = 1;
+		wake_up(&encrypt_waitq);
+	}
+
+	if(crp == NULL) {
+		printk("encrypt_ocf_rd_cb: crp is NULL!! \n");
+		return 0;
+	}
+
+	ocf_wr_priv = (struct ocf_wr_priv*)crp->crp_opaque;
+
+	ocf_wr_priv->encrypt_ocf_wr_completed++;
+
+	/* if no more pending for read, wake up the read task. */
+	if(ocf_wr_priv->encrypt_ocf_wr_completed == ocf_wr_priv->encrypt_ocf_wr_pending)
+		wake_up(&ocf_wr_priv->encrypt_ocf_wr_queue);
+
+	crypto_freereq(crp);
+    return 0;
+}
+
+static inline int encrypt_ocf_process(struct ecryptfs_crypt_stat *crypt_stat, struct scatterlist *out,
+		struct scatterlist *in, unsigned int len, u8 *iv, int iv_size, int write, void *priv)
+{
+	struct cryptop *crp;
+	struct cryptodesc *crda = NULL;
+	u32 err;
+
+	if (!iv) {
+		printk("encrypt_ocf_process: only CBC mode is supported\n");
+		return -EPERM;
+	}
+
+	crp = crypto_getreq(1);	 /* only encryption/decryption */
+	if (!crp) {
+		printk("encrypt_ocf_process: crypto_getreq failed!!\n");
+		return -ENOMEM;
+	}
+
+	crda = crp->crp_desc;
+
+	crda->crd_flags  = (write)? CRD_F_ENCRYPT: 0;
+	crda->crd_alg    = crypt_stat->cr_dm.cri_alg;
+	crda->crd_skip   = 0;
+	crda->crd_len    = len;
+	crda->crd_inject = 0; /* NA */
+	crda->crd_klen   = crypt_stat->cr_dm.cri_klen;
+	crda->crd_key    = crypt_stat->cr_dm.cri_key;
+
+	if (iv) {
+		crda->crd_flags |= (CRD_F_IV_EXPLICIT | CRD_F_IV_PRESENT);
+		if (iv_size > EALG_MAX_BLOCK_LEN) {
+			printk("encrypt_ocf_process: iv is too big!!\n");
+		}
+		memcpy(&crda->crd_iv, iv, iv_size);
+	}
+
+	/* according to the current implementation the in and the out are
+	 * the same buffer for read, and different for write */
+	if ((page_address(sg_page(out)) + out->offset) != (page_address(sg_page(in)) + in->offset)) {
+		memcpy((page_address(sg_page(out)) + out->offset), (page_address(sg_page(in)) + in->offset), len);
+		ecryptfs_printk(KERN_DEBUG, "encrypt_ocf_process: copy buffers!! \n");
+	}
+
+	ecryptfs_printk(KERN_DEBUG, "len: %u\n", len);
+	crp->crp_ilen = len; /* Total input length */
+	crp->crp_flags = CRYPTO_F_CBIMM /*| CRYPTO_F_BATCH*/;
+	crp->crp_buf = page_address(sg_page(out)) + out->offset;
+	crp->crp_opaque = priv;
+	if (write) {
+		crp->crp_callback = encrypt_ocf_wr_cb;
+	} else {
+		crp->crp_callback = encrypt_ocf_rd_cb;
+	}
+	crp->crp_sid = ((struct ocf_wr_priv *)priv)->ocf_cryptoid;
+
+	while (crypto_dispatch(crp) != 0) {
+		wake = 0;
+		atomic_inc(&blocked);
+		err = wait_event_interruptible_exclusive(encrypt_waitq, wake);
+		if (err) {
+			printk("encrypt_ocf_process: wait_event_interruptible_exclusive failed !!\n");
+			return -ENOMEM;
+		}
+	}
+	return 0;
+}
+#endif
+
 struct extent_crypt_result {
 	struct completion completion;
 	int rc;
@@ -348,8 +493,14 @@ static void extent_crypt_complete(struct crypto_async_request *req, int rc)
 static int encrypt_scatterlist(struct ecryptfs_crypt_stat *crypt_stat,
 			       struct scatterlist *dest_sg,
 			       struct scatterlist *src_sg, int size,
+#ifdef ASUSTOR_PATCH
+			       void *priv, int iv_size,
+#endif
 			       unsigned char *iv)
 {
+#ifdef ASUSTOR_PATCH
+	return encrypt_ocf_process(crypt_stat, dest_sg, src_sg, size, iv, iv_size, 1, priv);
+#else
 	struct ablkcipher_request *req = NULL;
 	struct extent_crypt_result ecr;
 	int rc = 0;
@@ -404,6 +555,7 @@ static int encrypt_scatterlist(struct ecryptfs_crypt_stat *crypt_stat,
 out:
 	ablkcipher_request_free(req);
 	return rc;
+#endif
 }
 
 /**
@@ -434,6 +586,9 @@ static void ecryptfs_lower_offset_for_extent(loff_t *offset, loff_t extent_num,
 static int ecryptfs_encrypt_extent(struct page *enc_extent_page,
 				   struct ecryptfs_crypt_stat *crypt_stat,
 				   struct page *page,
+#ifdef ASUSTOR_PATCH
+				   void *priv,
+#endif
 				   unsigned long extent_offset)
 {
 	loff_t extent_base;
@@ -451,9 +606,16 @@ static int ecryptfs_encrypt_extent(struct page *enc_extent_page,
 		goto out;
 	}
 	rc = ecryptfs_encrypt_page_offset(crypt_stat, enc_extent_page, 0,
+#ifdef ASUSTOR_PATCH
+					  page, (extent_offset * crypt_stat->extent_size),
+					  crypt_stat->extent_size,
+					  priv, crypt_stat->iv_bytes,
+					  extent_iv);
+#else
 					  page, (extent_offset
 						 * crypt_stat->extent_size),
 					  crypt_stat->extent_size, extent_iv);
+#endif
 	if (rc < 0) {
 		printk(KERN_ERR "%s: Error attempting to encrypt page with "
 		       "page->index = [%ld], extent_offset = [%ld]; "
@@ -491,10 +653,34 @@ int ecryptfs_encrypt_page(struct page *page)
 	loff_t extent_offset;
 	int rc = 0;
 
+#ifdef ASUSTOR_PATCH
+	int fsession = 0;
+	long wr_timeout = 30000;
+	long wr_tm = 0;
+	struct ocf_wr_priv *ocf_wr_priv = NULL;
+
+	ocf_wr_priv = kmalloc(sizeof(struct ocf_wr_priv), GFP_KERNEL);
+	if (!ocf_wr_priv) {
+		printk("encrypt_scatterlist: out of memory \n");
+		return -ENOMEM;
+	}
+	ocf_wr_priv->encrypt_ocf_wr_pending = 0;
+	ocf_wr_priv->encrypt_ocf_wr_completed = 0;
+	init_waitqueue_head(&ocf_wr_priv->encrypt_ocf_wr_queue);
+#endif
 	ecryptfs_inode = page->mapping->host;
 	crypt_stat =
 		&(ecryptfs_inode_to_private(ecryptfs_inode)->crypt_stat);
 	BUG_ON(!(crypt_stat->flags & ECRYPTFS_ENCRYPTED));
+#ifdef ASUSTOR_PATCH
+	if (crypto_newsession(&ocf_wr_priv->ocf_cryptoid, &crypt_stat->cr_dm, 0)) {
+		printk("%s:%s(%d) crypto_newsession failed, sid:[%u]\n"
+			, __FILE__, __FUNCTION__, __LINE__ , CRYPTO_SESID2LID(ocf_wr_priv->ocf_cryptoid));
+		goto out;
+	}else{
+		fsession = 1;
+	}
+#endif
 	enc_extent_page = alloc_page(GFP_USER);
 	if (!enc_extent_page) {
 		rc = -ENOMEM;
@@ -509,12 +695,25 @@ int ecryptfs_encrypt_page(struct page *page)
 		loff_t offset;
 
 		rc = ecryptfs_encrypt_extent(enc_extent_page, crypt_stat, page,
+#ifdef ASUSTOR_PATCH
+					     ocf_wr_priv,
+#endif
 					     extent_offset);
 		if (rc) {
 			printk(KERN_ERR "%s: Error encrypting extent; "
 			       "rc = [%d]\n", __func__, rc);
 			goto out;
 		}
+#ifdef ASUSTOR_PATCH
+        ocf_wr_priv->encrypt_ocf_wr_pending++;
+        wr_tm = wait_event_timeout(ocf_wr_priv->encrypt_ocf_wr_queue,
+			(ocf_wr_priv->encrypt_ocf_wr_pending == ocf_wr_priv->encrypt_ocf_wr_completed),
+			msecs_to_jiffies(wr_timeout));
+        if (!wr_tm) {
+            printk("ocf_crypt_convert: wr work was not finished in %ld msecs, %d pending %d completed.\n",
+                   wr_timeout, ocf_wr_priv->encrypt_ocf_wr_pending, ocf_wr_priv->encrypt_ocf_wr_completed);
+		}
+#endif
 		ecryptfs_lower_offset_for_extent(
 			&offset, ((((loff_t)page->index)
 				   * (PAGE_CACHE_SIZE
@@ -523,6 +722,9 @@ int ecryptfs_encrypt_page(struct page *page)
 		rc = ecryptfs_write_lower(ecryptfs_inode, enc_extent_virt,
 					  offset, crypt_stat->extent_size);
 		if (rc < 0) {
+#ifdef ASUSTOR_PATCH
+			if (-EDQUOT != rc && -EIO != rc && -ENOSPC != rc)
+#endif
 			ecryptfs_printk(KERN_ERR, "Error attempting "
 					"to write lower page; rc = [%d]"
 					"\n", rc);
@@ -531,6 +733,12 @@ int ecryptfs_encrypt_page(struct page *page)
 	}
 	rc = 0;
 out:
+#ifdef ASUSTOR_PATCH
+	if (fsession){
+		crypto_freesession(ocf_wr_priv->ocf_cryptoid);
+	}
+	kfree(ocf_wr_priv);
+#endif
 	if (enc_extent_page) {
 		kunmap(enc_extent_page);
 		__free_page(enc_extent_page);
@@ -541,6 +749,9 @@ out:
 static int ecryptfs_decrypt_extent(struct page *page,
 				   struct ecryptfs_crypt_stat *crypt_stat,
 				   struct page *enc_extent_page,
+#ifdef ASUSTOR_PATCH
+                   void *priv,
+#endif
 				   unsigned long extent_offset)
 {
 	loff_t extent_base;
@@ -558,10 +769,17 @@ static int ecryptfs_decrypt_extent(struct page *page,
 		goto out;
 	}
 	rc = ecryptfs_decrypt_page_offset(crypt_stat, page,
+#ifdef ASUSTOR_PATCH
+					  (extent_offset * crypt_stat->extent_size),
+					  enc_extent_page, 0, crypt_stat->extent_size,
+					  priv, crypt_stat->iv_bytes,
+					  extent_iv);
+#else
 					  (extent_offset
 					   * crypt_stat->extent_size),
 					  enc_extent_page, 0,
 					  crypt_stat->extent_size, extent_iv);
+#endif
 	if (rc < 0) {
 		printk(KERN_ERR "%s: Error attempting to decrypt to page with "
 		       "page->index = [%ld], extent_offset = [%ld]; "
@@ -596,13 +814,40 @@ int ecryptfs_decrypt_page(struct page *page)
 	struct ecryptfs_crypt_stat *crypt_stat;
 	char *enc_extent_virt;
 	struct page *enc_extent_page = NULL;
+#ifdef ASUSTOR_PATCH
+	char *syno_zero_virt = NULL;
+#endif
 	unsigned long extent_offset;
 	int rc = 0;
 
+#ifdef ASUSTOR_PATCH
+	int fsession = 0;
+	long wr_timeout = 30000;
+	long wr_tm = 0;
+	struct ocf_wr_priv *ocf_wr_priv = NULL;
+
+	ocf_wr_priv = kmalloc(sizeof(struct ocf_wr_priv), GFP_KERNEL);
+	if (!ocf_wr_priv) {
+		printk("encrypt_scatterlist: out of memory \n");
+		return -ENOMEM;
+	}
+	ocf_wr_priv->encrypt_ocf_wr_pending = 0;
+	ocf_wr_priv->encrypt_ocf_wr_completed = 0;
+	init_waitqueue_head(&ocf_wr_priv->encrypt_ocf_wr_queue);
+#endif
 	ecryptfs_inode = page->mapping->host;
 	crypt_stat =
 		&(ecryptfs_inode_to_private(ecryptfs_inode)->crypt_stat);
 	BUG_ON(!(crypt_stat->flags & ECRYPTFS_ENCRYPTED));
+#ifdef ASUSTOR_PATCH
+	if (crypto_newsession(&ocf_wr_priv->ocf_cryptoid, &crypt_stat->cr_dm, 0)) {
+		printk("%s:%s(%d) crypto_newsession failed, sid:[%u]\n"
+               , __FILE__, __FUNCTION__, __LINE__ , CRYPTO_SESID2LID(ocf_wr_priv->ocf_cryptoid));
+		goto out;
+	}else{
+		fsession = 1;
+    }
+#endif
 	enc_extent_page = alloc_page(GFP_USER);
 	if (!enc_extent_page) {
 		rc = -ENOMEM;
@@ -611,6 +856,13 @@ int ecryptfs_decrypt_page(struct page *page)
 		goto out;
 	}
 	enc_extent_virt = kmap(enc_extent_page);
+#ifdef ASUSTOR_PATCH
+	syno_zero_virt = kzalloc(PAGE_CACHE_SIZE, GFP_KERNEL);
+	if (!syno_zero_virt) {
+		rc = -ENOMEM;
+		goto out;
+	}
+#endif
 	for (extent_offset = 0;
 	     extent_offset < (PAGE_CACHE_SIZE / crypt_stat->extent_size);
 	     extent_offset++) {
@@ -629,19 +881,56 @@ int ecryptfs_decrypt_page(struct page *page)
 					"\n", rc);
 			goto out;
 		}
+#ifdef ASUSTOR_PATCH
+		// check pre 16 byte first, in order to filter unnecessary memcmp
+		if (!memcmp(enc_extent_virt, syno_zero_virt, 16) &&
+			!memcmp(enc_extent_virt+16, syno_zero_virt+16, PAGE_CACHE_SIZE-16)){
+			char *ecryptfs_page_virt;
+			ecryptfs_page_virt = kmap_atomic(page);
+			memcpy((char *)ecryptfs_page_virt,
+			enc_extent_virt, PAGE_CACHE_SIZE);
+			kunmap_atomic(ecryptfs_page_virt);
+			rc = 0;
+			continue;
+		}
+#endif
 		rc = ecryptfs_decrypt_extent(page, crypt_stat, enc_extent_page,
+#ifdef ASUSTOR_PATCH
+                         ocf_wr_priv,
+#endif
 					     extent_offset);
 		if (rc) {
 			printk(KERN_ERR "%s: Error encrypting extent; "
 			       "rc = [%d]\n", __func__, rc);
 			goto out;
 		}
+#ifdef ASUSTOR_PATCH
+        ocf_wr_priv->encrypt_ocf_wr_pending++;
+#endif
 	}
 out:
+#ifdef ASUSTOR_PATCH
+    wr_tm = wait_event_timeout(ocf_wr_priv->encrypt_ocf_wr_queue,
+                               (ocf_wr_priv->encrypt_ocf_wr_pending == ocf_wr_priv->encrypt_ocf_wr_completed),
+                               msecs_to_jiffies(wr_timeout));
+    if (!wr_tm) {
+        printk("ocf_crypt_convert: wr work was not finished in %ld msecs, %d pending %d completed.\n",
+               wr_timeout, ocf_wr_priv->encrypt_ocf_wr_pending, ocf_wr_priv->encrypt_ocf_wr_completed);
+    }
+
+    if (fsession) {
+        crypto_freesession(ocf_wr_priv->ocf_cryptoid);
+    }
+    kfree(ocf_wr_priv);
+#endif
 	if (enc_extent_page) {
 		kunmap(enc_extent_page);
 		__free_page(enc_extent_page);
 	}
+#ifdef ASUSTOR_PATCH
+	if (syno_zero_virt)
+		kfree(syno_zero_virt);
+#endif
 	return rc;
 }
 
@@ -658,8 +947,14 @@ out:
 static int decrypt_scatterlist(struct ecryptfs_crypt_stat *crypt_stat,
 			       struct scatterlist *dest_sg,
 			       struct scatterlist *src_sg, int size,
+#ifdef ASUSTOR_PATCH
+			       void *priv, int iv_size,
+#endif
 			       unsigned char *iv)
 {
+#ifdef ASUSTOR_PATCH
+	return encrypt_ocf_process(crypt_stat, dest_sg, src_sg, size, iv, iv_size, 0, priv);
+#else
 	struct ablkcipher_request *req = NULL;
 	struct extent_crypt_result ecr;
 	int rc = 0;
@@ -714,7 +1009,7 @@ static int decrypt_scatterlist(struct ecryptfs_crypt_stat *crypt_stat,
 out:
 	ablkcipher_request_free(req);
 	return rc;
-
+#endif
 }
 
 /**
@@ -733,6 +1028,9 @@ static int
 ecryptfs_encrypt_page_offset(struct ecryptfs_crypt_stat *crypt_stat,
 			     struct page *dst_page, int dst_offset,
 			     struct page *src_page, int src_offset, int size,
+#ifdef ASUSTOR_PATCH
+			     void *priv, int iv_size,
+#endif
 			     unsigned char *iv)
 {
 	struct scatterlist src_sg, dst_sg;
@@ -742,7 +1040,11 @@ ecryptfs_encrypt_page_offset(struct ecryptfs_crypt_stat *crypt_stat,
 
 	sg_set_page(&src_sg, src_page, size, src_offset);
 	sg_set_page(&dst_sg, dst_page, size, dst_offset);
+#ifdef ASUSTOR_PATCH
+	return encrypt_scatterlist(crypt_stat, &dst_sg, &src_sg, size, priv, iv_size, iv);
+#else
 	return encrypt_scatterlist(crypt_stat, &dst_sg, &src_sg, size, iv);
+#endif
 }
 
 /**
@@ -761,6 +1063,9 @@ static int
 ecryptfs_decrypt_page_offset(struct ecryptfs_crypt_stat *crypt_stat,
 			     struct page *dst_page, int dst_offset,
 			     struct page *src_page, int src_offset, int size,
+#ifdef ASUSTOR_PATCH
+			     void *priv, int iv_size,
+#endif
 			     unsigned char *iv)
 {
 	struct scatterlist src_sg, dst_sg;
@@ -770,8 +1075,11 @@ ecryptfs_decrypt_page_offset(struct ecryptfs_crypt_stat *crypt_stat,
 
 	sg_init_table(&dst_sg, 1);
 	sg_set_page(&dst_sg, dst_page, size, dst_offset);
-
+#ifdef ASUSTOR_PATCH
+	return decrypt_scatterlist(crypt_stat, &dst_sg, &src_sg, size, priv, iv_size, iv);
+#else
 	return decrypt_scatterlist(crypt_stat, &dst_sg, &src_sg, size, iv);
+#endif
 }
 
 #define ECRYPTFS_MAX_SCATTERLIST_LEN 4
@@ -786,6 +1094,45 @@ ecryptfs_decrypt_page_offset(struct ecryptfs_crypt_stat *crypt_stat,
  * only init if needed
  */
 int ecryptfs_init_crypt_ctx(struct ecryptfs_crypt_stat *crypt_stat)
+#ifdef ASUSTOR_PATCH
+{
+	int rc = -EINVAL;
+
+	if (!crypt_stat->cipher) {
+		ecryptfs_printk(KERN_ERR, "No cipher specified\n");
+		return rc;
+	}
+	ecryptfs_printk(KERN_DEBUG,
+			"Initializing cipher [%s]; strlen = [%d]; key_size_bits = [%d]\n",
+			crypt_stat->cipher, (int)strlen(crypt_stat->cipher),
+			crypt_stat->key_size << 3);
+
+	mutex_lock(&crypt_stat->cs_tfm_mutex);
+	/* prepare a new OCF session */
+	memset(&crypt_stat->cr_dm, 0, sizeof(struct cryptoini));
+
+	if (0 == strcmp(crypt_stat->cipher, "aes")) {
+		crypt_stat->cr_dm.cri_alg  = CRYPTO_AES_CBC;
+	} else if (0 == strcmp(crypt_stat->cipher, "des")) {
+		crypt_stat->cr_dm.cri_alg  = CRYPTO_DES_CBC;
+	} else if (0 == strcmp(crypt_stat->cipher, "des3_ede")) {
+		crypt_stat->cr_dm.cri_alg  = CRYPTO_3DES_CBC;
+	} else {
+		ecryptfs_printk(KERN_ERR, "using OCF: unknown cipher:[%s]\n", crypt_stat->cipher);
+		goto out_unlock;
+	}
+
+	ecryptfs_printk(KERN_DEBUG, "key size is %d\n", crypt_stat->key_size);
+	crypt_stat->cr_dm.cri_klen = crypt_stat->key_size * 8; /* in bits */
+	crypt_stat->cr_dm.cri_key  = crypt_stat->key;
+	crypt_stat->cr_dm.cri_next = NULL;
+
+	rc = 0;
+out_unlock:
+	mutex_unlock(&crypt_stat->cs_tfm_mutex);
+	return rc;
+}
+#else
 {
 	char *full_alg_name;
 	int rc = -EINVAL;
@@ -825,7 +1172,7 @@ out_unlock:
 out:
 	return rc;
 }
-
+#endif
 static void set_extent_mask_and_shift(struct ecryptfs_crypt_stat *crypt_stat)
 {
 	int extent_size_tmp;
@@ -1324,6 +1671,10 @@ ecryptfs_write_metadata_to_contents(struct inode *ecryptfs_inode,
 
 	rc = ecryptfs_write_lower(ecryptfs_inode, virt,
 				  0, virt_len);
+#ifdef ASUSTOR_PATCH
+	if (-EDQUOT == rc || -EIO == rc || -ENOSPC == rc)
+		return rc;  // skip error msg
+#endif
 	if (rc < 0)
 		printk(KERN_ERR "%s: Error attempting to write header "
 		       "information to lower file; rc = [%d]\n", __func__, rc);
@@ -1414,6 +1765,9 @@ int ecryptfs_write_metadata(struct dentry *ecryptfs_dentry,
 		rc = ecryptfs_write_metadata_to_contents(ecryptfs_inode, virt,
 							 virt_len);
 	if (rc) {
+#ifdef ASUSTOR_PATCH
+		if (-EDQUOT != rc && -EIO != rc && -ENOSPC != rc)
+#endif
 		printk(KERN_ERR "%s: Error writing metadata out to lower file; "
 		       "rc = [%d]\n", __func__, rc);
 		goto out_free;
@@ -1830,6 +2184,11 @@ int __init ecryptfs_init_crypto(void)
 {
 	mutex_init(&key_tfm_list_mutex);
 	INIT_LIST_HEAD(&key_tfm_list);
+#ifdef ASUSTOR_PATCH
+	init_waitqueue_head(&encrypt_waitq);
+	atomic_set(&blocked, 0);
+	printk("encryptfs using the OCF package.\n");
+#endif
 	return 0;
 }
 

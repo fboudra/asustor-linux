@@ -1415,6 +1415,7 @@ struct xhci_hcd {
 	__u32		hcc_params;
 
 	spinlock_t	lock;
+	void           *priv;
 
 	/* packed release number */
 	u8		sbrn;
@@ -1550,6 +1551,9 @@ static inline struct usb_hcd *xhci_to_hcd(struct xhci_hcd *xhci)
 {
 	return xhci->main_hcd;
 }
+
+int common_xhci_plat_probe(struct platform_device *pdev, void *priv);
+int common_xhci_plat_remove(struct platform_device *dev);
 
 #ifdef CONFIG_USB_XHCI_HCD_DEBUGGING
 #define XHCI_DEBUG	1
@@ -1702,6 +1706,8 @@ struct xhci_command *xhci_alloc_command(struct xhci_hcd *xhci,
 void xhci_urb_free_priv(struct xhci_hcd *xhci, struct urb_priv *urb_priv);
 void xhci_free_command(struct xhci_hcd *xhci,
 		struct xhci_command *command);
+
+extern void xhci_kick_kxhcd(struct xhci_hcd *xhci);
 
 #ifdef CONFIG_PCI
 /* xHCI PCI glue */
@@ -1857,5 +1863,8 @@ struct xhci_ep_ctx *xhci_get_ep_ctx(struct xhci_hcd *xhci, struct xhci_container
 
 /* xHCI quirks */
 bool xhci_compliance_mode_recovery_timer_quirk_check(void);
+
+/* HCRST debug */
+#define XHCI_MV_HCRST_DEBUG		1
 
 #endif /* __LINUX_XHCI_HCD_H */

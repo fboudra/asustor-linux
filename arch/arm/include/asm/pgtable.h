@@ -40,7 +40,7 @@
  */
 #define VMALLOC_OFFSET		(8*1024*1024)
 #define VMALLOC_START		(((unsigned long)high_memory + VMALLOC_OFFSET) & ~(VMALLOC_OFFSET-1))
-#define VMALLOC_END		0xff000000UL
+#define VMALLOC_END		0xfff00000UL
 
 #define LIBRARY_TEXT_START	0x0c000000
 
@@ -58,7 +58,11 @@ extern void __pgd_error(const char *file, int line, pgd_t);
  * mapping to be mapped at.  This is particularly important for
  * non-high vector CPUs.
  */
+#ifndef CONFIG_MV_LARGE_PAGE_SUPPORT
 #define FIRST_USER_ADDRESS	(PAGE_SIZE * 2)
+#else
+#define FIRST_USER_ADDRESS	PAGE_SIZE
+#endif
 
 /*
  * Use TASK_SIZE as the ceiling argument for free_pgtables() and

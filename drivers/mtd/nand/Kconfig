@@ -353,11 +353,11 @@ config MTD_NAND_ATMEL
 	  on Atmel AT91 and AVR32 processors.
 
 config MTD_NAND_PXA3xx
-	tristate "Support for NAND flash devices on PXA3xx"
-	depends on PXA3xx || ARCH_MMP
+	tristate "NAND support on PXA3xx and Armada 370/XP"
+	depends on PXA3xx || ARCH_MMP || PLAT_ORION
 	help
 	  This enables the driver for the NAND flash device found on
-	  PXA3xx processors
+	  PXA3xx processors (NFCv1) and also on Armada 370/XP (NFCv2).
 
 config MTD_NAND_SLC_LPC32XX
 	tristate "NXP LPC32xx SLC Controller"
@@ -423,6 +423,18 @@ config MTD_NAND_BCM47XXNFLASH
 	  BCMA bus can have various flash memories attached, they are
 	  registered by bcma as platform devices. This enables driver for
 	  NAND flash memories. For now only BCM4706 is supported.
+
+config MTD_NAND_MVEBU_NFC
+	bool "MTD driver for the Armada Nand Flash Controller"
+	depends on ARCH_MVEBU
+	default n
+	help
+	  This enables the driver for the NAND flash controller found in
+	  the Marvell Armada SoC devices.
+
+if MTD_NAND_MVEBU_NFC = “y”
+	source “drivers/mtd/nand/mvebu_nfc/Kconfig”
+endif
 
 config MTD_NAND_PLATFORM
 	tristate "Support for generic platform NAND driver"
