@@ -33,7 +33,9 @@
 #include <linux/socket.h>
 #include <linux/compat.h>
 #include "internal.h"
-
+#ifdef ASUSTOR_PATCH
+#include <net/sock.h>
+#endif
 /*
  * Attempt to steal a page from a pipe buffer. This should perhaps go into
  * a vm helper function, it's already simplified quite a bit by the
@@ -1111,8 +1113,8 @@ EXPORT_SYMBOL(generic_splice_sendpage);
 /*
  * Attempt to initiate a splice from pipe to file.
  */
-static long do_splice_from(struct pipe_inode_info *pipe, struct file *out,
-			   loff_t *ppos, size_t len, unsigned int flags)
+long do_splice_from(struct pipe_inode_info *pipe, struct file *out,
+		    loff_t *ppos, size_t len, unsigned int flags)
 {
 	ssize_t (*splice_write)(struct pipe_inode_info *, struct file *,
 				loff_t *, size_t, unsigned int);
@@ -1124,13 +1126,14 @@ static long do_splice_from(struct pipe_inode_info *pipe, struct file *out,
 
 	return splice_write(pipe, out, ppos, len, flags);
 }
+EXPORT_SYMBOL(do_splice_from);
 
 /*
  * Attempt to initiate a splice from a file to a pipe.
  */
-static long do_splice_to(struct file *in, loff_t *ppos,
-			 struct pipe_inode_info *pipe, size_t len,
-			 unsigned int flags)
+long do_splice_to(struct file *in, loff_t *ppos,
+		  struct pipe_inode_info *pipe, size_t len,
+		  unsigned int flags)
 {
 	ssize_t (*splice_read)(struct file *, loff_t *,
 			       struct pipe_inode_info *, size_t, unsigned int);
@@ -1150,6 +1153,7 @@ static long do_splice_to(struct file *in, loff_t *ppos,
 
 	return splice_read(in, ppos, pipe, len, flags);
 }
+EXPORT_SYMBOL(do_splice_to);
 
 /**
  * splice_direct_to_actor - splices data directly between two non-pipes
@@ -1682,6 +1686,119 @@ static long vmsplice_to_pipe(struct file *file, const struct iovec __user *iov,
 	return ret;
 }
 
+#ifdef ASUSTOR_PATCH
+struct stPageStruct
+{
+    struct page *stPage;
+    loff_t stPos;
+    size_t  stLen;
+    void *stFsdata;
+};
+
+static ssize_t recvfile_from_socket(struct file *file, struct socket *sock,loff_t __user *ppos,size_t len)
+{
+	loff_t pos;
+	struct inode *inode = file->f_mapping->host;
+	long error = 0, cnPage = 0, cbLentmp, cnPagetmp, iRet = 0, cnTimeouttmp, cbReciveLen = 0;
+	struct stPageStruct stPage[32 + 1];
+	struct kvec iov[32 + 1];
+	unsigned long cbBufsize, cbOffsettmp;
+	struct msghdr stMessage;
+	
+	if(copy_from_user(&pos, ppos, sizeof(loff_t))){
+		printk(KERN_INFO "recvfile_from_socket: copy_from_user failed\n");
+		return -EFAULT;
+	}
+	
+	//lock inode
+	mutex_lock(&inode->i_mutex);
+	
+	//check vfs frozen
+	//vfs_check_frozen(inode->i_sb, SB_FREEZE_WRITE);
+	
+	//set backing_dev_info
+	current->backing_dev_info = file->f_mapping->backing_dev_info;
+	
+	//process write check
+	if(0 != (iRet = generic_write_checks(file, &pos, &len, S_ISBLK(inode->i_mode))) || 0 == len){
+		if(iRet)
+			printk(KERN_INFO "recvfile_from_socket: generic_write_checks failed\n");
+		else
+			printk(KERN_INFO "recvfile_from_socket: generic_write_checks return zero len\n");
+		return -EFAULT;
+	}
+	
+	//remove suid
+	file_remove_suid(file);
+	
+	//update file time
+    file_update_time(file);
+	
+	//initial pages
+	cbLentmp = len;
+	do{
+		cbOffsettmp = pos & (PAGE_CACHE_SIZE - 1);
+		cbBufsize = PAGE_CACHE_SIZE - cbOffsettmp;
+		if(cbBufsize > cbLentmp) cbBufsize = cbLentmp;
+		//write_begin
+		iRet = file->f_mapping->a_ops->write_begin(file, file->f_mapping, pos, cbBufsize, AOP_FLAG_UNINTERRUPTIBLE, &stPage[cnPage].stPage, &stPage[cnPage].stFsdata);
+		if(unlikely(iRet)){
+			error = iRet;
+			printk(KERN_INFO "recvfile_from_socket: write_begin failed\n");
+			goto done_unmap_page;
+		}
+		stPage[cnPage].stPos = pos;
+		stPage[cnPage].stLen = cbBufsize;
+		iov[cnPage].iov_len = cbBufsize;
+		iov[cnPage].iov_base = kmap(stPage[cnPage].stPage) + cbOffsettmp;
+		cnPage++;
+        cbLentmp -= cbBufsize;
+        pos += cbBufsize;
+	}while (cbLentmp);
+	
+	//set message structure
+	stMessage.msg_name = NULL;
+	stMessage.msg_namelen = 0;
+	stMessage.msg_iov = (struct iovec *)&iov;
+	stMessage.msg_iovlen = cnPage;
+	stMessage.msg_control = NULL;
+	stMessage.msg_controllen = 0;
+	cnTimeouttmp = sock->sk->sk_rcvtimeo;    
+	sock->sk->sk_rcvtimeo = 3 * HZ;
+	
+	//recive message from socket
+	if(0 > (iRet = kernel_recvmsg(sock, &stMessage, &iov[0], cnPage, len, MSG_WAITALL))){
+		printk(KERN_INFO "recvfile_from_socket: kernel_recvmsg recive data %ld != len\n", iRet);
+		error = iRet;
+	}
+	else{
+		error = 0;
+		pos = pos - len + iRet;
+		cbReciveLen = iRet;
+	}
+	sock->sk->sk_rcvtimeo = cnTimeouttmp;
+
+done_unmap_page:
+	for(cnPagetmp = 0; cnPagetmp < cnPage; cnPagetmp++){
+		kunmap(stPage[cnPagetmp].stPage);
+		iRet = file->f_mapping->a_ops->write_end(file, file->f_mapping, stPage[cnPagetmp].stPos, stPage[cnPagetmp].stLen, stPage[cnPagetmp].stLen, stPage[cnPagetmp].stPage, stPage[cnPagetmp].stFsdata);
+		if(unlikely(iRet < 0)){
+			printk(KERN_INFO "recvfile_from_socket: write_end on page %ld failed\n", cnPagetmp);
+		}
+	}
+	 balance_dirty_pages_ratelimited(file->f_mapping);
+	if(!error) {
+		copy_to_user(ppos, &pos, sizeof(loff_t));
+	}
+	current->backing_dev_info = NULL;    
+	mutex_unlock(&inode->i_mutex);
+	if(error)
+		return error;
+	else
+		return cbReciveLen;
+}
+#endif
+
 /*
  * Note that vmsplice only really supports true splicing _from_ user memory
  * to a pipe, not the other way around. Splicing from user memory is a simple
@@ -1750,11 +1867,34 @@ SYSCALL_DEFINE6(splice, int, fd_in, loff_t __user *, off_in,
 {
 	struct fd in, out;
 	long error;
-
+#ifdef ASUSTOR_PATCH
+	struct socket *ptSocket = NULL;
+#endif
 	if (unlikely(!len))
 		return 0;
 
 	error = -EBADF;
+#ifdef ASUSTOR_PATCH
+	ptSocket = sockfd_lookup(fd_in, (int *)&error);
+	if(ptSocket){
+        out = fdget(fd_out);
+		if (out.file) {
+			if (!(out.file->f_mode & FMODE_WRITE)){
+				printk(KERN_INFO "out file not FMODE_WRITE\n");
+				fdput(out);
+				fput(ptSocket->file);
+				return error;
+			}
+			if(!ptSocket->sk){
+				printk(KERN_INFO "socket failed\n");
+				fdput(out);
+				fput(ptSocket->file);
+				return error;
+			}
+			error = recvfile_from_socket(out.file, ptSocket, off_out,len);
+		}
+	}else{
+#endif
 	in = fdget(fd_in);
 	if (in.file) {
 		if (in.file->f_mode & FMODE_READ) {
@@ -1769,6 +1909,9 @@ SYSCALL_DEFINE6(splice, int, fd_in, loff_t __user *, off_in,
 		}
 		fdput(in);
 	}
+#ifdef ASUSTOR_PATCH
+	}
+#endif
 	return error;
 }
 

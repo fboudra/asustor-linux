@@ -590,7 +590,7 @@ group_add_out:
 		    ext4_has_group_desc_csum(sb) &&
 		    test_opt(sb, INIT_INODE_TABLE))
 			err = ext4_register_li_request(sb, o_group);
-
+			
 resizefs_out:
 		ext4_resize_end(sb);
 		return err;

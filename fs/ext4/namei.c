@@ -39,7 +39,6 @@
 
 #include "xattr.h"
 #include "acl.h"
-
 #include <trace/events/ext4.h>
 /*
  * define how far ahead to read directories while searching them.
@@ -3224,7 +3223,12 @@ const struct inode_operations ext4_dir_inode_operations = {
 	.getxattr	= generic_getxattr,
 	.listxattr	= ext4_listxattr,
 	.removexattr	= generic_removexattr,
+#ifdef ASUSTOR_PATCH_ASACL
+	/* Patch purpose: ASACL */
+	.get_acl	= ext4_get_posix_acl,
+#else /* ASUSTOR_PATCH_ASACL */
 	.get_acl	= ext4_get_acl,
+#endif /* ASUSTOR_PATCH_ASACL */
 	.fiemap         = ext4_fiemap,
 };
 
@@ -3234,5 +3238,10 @@ const struct inode_operations ext4_special_inode_operations = {
 	.getxattr	= generic_getxattr,
 	.listxattr	= ext4_listxattr,
 	.removexattr	= generic_removexattr,
+#ifdef ASUSTOR_PATCH_ASACL
+	/* Patch purpose: ASACL */
+	.get_acl	= ext4_get_posix_acl,
+#else /* ASUSTOR_PATCH_ASACL */
 	.get_acl	= ext4_get_acl,
+#endif /* ASUSTOR_PATCH_ASACL */
 };

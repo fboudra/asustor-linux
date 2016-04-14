@@ -953,7 +953,36 @@ intel_hdmi_detect(struct drm_connector *connector, bool force)
 				(intel_hdmi->force_audio == HDMI_AUDIO_ON);
 		intel_encoder->type = INTEL_OUTPUT_HDMI;
 	}
+#ifdef ASUSTOR_PATCH
+	if (status == connector_status_disconnected) {
+        intel_hdmi->has_hdmi_sink = false;
+        intel_hdmi->has_audio = false;
+        intel_hdmi->rgb_quant_range_selectable = false;
+        edid = drm_get_edid(connector,
+                    intel_gmbus_get_adapter(dev_priv,
+                                intel_hdmi->ddc_bus));
 
+        if (edid) {
+            if (edid->input & DRM_EDID_INPUT_DIGITAL) {
+                status = connector_status_connected;
+                if (intel_hdmi->force_audio != HDMI_AUDIO_OFF_DVI)
+                    intel_hdmi->has_hdmi_sink =
+                            drm_detect_hdmi_monitor(edid);
+                intel_hdmi->has_audio = drm_detect_monitor_audio(edid);
+                intel_hdmi->rgb_quant_range_selectable =
+                    drm_rgb_quant_range_selectable(edid);
+            }
+            kfree(edid);
+        }
+
+        if (status == connector_status_connected) {
+            if (intel_hdmi->force_audio != HDMI_AUDIO_AUTO)
+                intel_hdmi->has_audio =
+                    (intel_hdmi->force_audio == HDMI_AUDIO_ON);
+            intel_encoder->type = INTEL_OUTPUT_HDMI;
+        }
+    }
+#endif
 	return status;
 }
 
@@ -965,7 +994,6 @@ static int intel_hdmi_get_modes(struct drm_connector *connector)
 	/* We should parse the EDID data and find out if it's an HDMI sink so
 	 * we can send audio to it.
 	 */
-
 	return intel_ddc_get_modes(connector,
 				   intel_gmbus_get_adapter(dev_priv,
 							   intel_hdmi->ddc_bus));

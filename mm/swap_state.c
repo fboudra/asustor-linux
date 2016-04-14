@@ -21,6 +21,8 @@
 
 #include <asm/pgtable.h>
 
+#include <linux/export.h>
+
 /*
  * swapper_space is a fiction, retained to simplify the path through
  * vmscan's shrink_page_list.
@@ -62,7 +64,7 @@ unsigned long total_swapcache_pages(void)
 		ret += swapper_spaces[i].nrpages;
 	return ret;
 }
-
+EXPORT_SYMBOL(total_swapcache_pages);
 void show_swap_cache_info(void)
 {
 	printk("%lu pages in swap cache\n", total_swapcache_pages());
@@ -73,7 +75,7 @@ void show_swap_cache_info(void)
 		get_nr_swap_pages() << (PAGE_SHIFT - 10));
 	printk("Total swap = %lukB\n", total_swap_pages << (PAGE_SHIFT - 10));
 }
-
+EXPORT_SYMBOL(show_swap_cache_info);
 /*
  * __add_to_swap_cache resembles add_to_page_cache_locked on swapper_space,
  * but sets SwapCache flag and private instead of mapping and index.

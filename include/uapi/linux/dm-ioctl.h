@@ -240,7 +240,12 @@ enum {
 	/* Added later */
 	DM_LIST_VERSIONS_CMD,
 	DM_TARGET_MSG_CMD,
+#ifdef ASUSTOR_PATCH
+	DM_DEV_SET_GEOMETRY_CMD,
+	DM_TABLE_ASWAP_CMD
+#else
 	DM_DEV_SET_GEOMETRY_CMD
+#endif
 };
 
 #define DM_IOCTL 0xfd
@@ -260,6 +265,9 @@ enum {
 #define DM_TABLE_CLEAR   _IOWR(DM_IOCTL, DM_TABLE_CLEAR_CMD, struct dm_ioctl)
 #define DM_TABLE_DEPS    _IOWR(DM_IOCTL, DM_TABLE_DEPS_CMD, struct dm_ioctl)
 #define DM_TABLE_STATUS  _IOWR(DM_IOCTL, DM_TABLE_STATUS_CMD, struct dm_ioctl)
+#ifdef ASUSTOR_PATCH
+#define DM_TABLE_ASWAP   _IOWR(DM_IOCTL, DM_TABLE_ASWAP_CMD, struct dm_ioctl)
+#endif
 
 #define DM_LIST_VERSIONS _IOWR(DM_IOCTL, DM_LIST_VERSIONS_CMD, struct dm_ioctl)
 

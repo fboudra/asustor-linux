@@ -190,9 +190,13 @@ static efi_status_t virt_efi_set_variable(efi_char16_t *name,
 					  unsigned long data_size,
 					  void *data)
 {
+#ifdef ASUSTOR_PATCH
+	return 0;
+#else
 	return efi_call_virt5(set_variable,
 			      name, vendor, attr,
 			      data_size, data);
+#endif
 }
 
 static efi_status_t virt_efi_query_variable_info(u32 attr,

@@ -123,8 +123,14 @@ static int gpio_chip_hwgpio(const struct gpio_desc *desc)
  */
 static struct gpio_desc *gpio_to_desc(unsigned gpio)
 {
+#ifdef ASUSTOR_PATCH
+	if (!gpio_is_valid(gpio))
+		printk(KERN_INFO "invalid GPIO %d\n", gpio);
+#else	
 	if (WARN(!gpio_is_valid(gpio), "invalid GPIO %d\n", gpio))
 		return NULL;
+#endif	
+		
 	else
 		return &gpio_desc[gpio];
 }

@@ -766,6 +766,11 @@ struct ata_link {
 	struct ata_port		*ap;
 	int			pmp;		/* port multiplier port # */
 
+#ifdef ASUSTOR_PATCH
+		//ata speed down count
+		int iCount;        
+#endif
+	
 	struct device		tdev;
 	unsigned int		active_tag;	/* active tag on this link */
 	u32			sactive;	/* active NCQ commands */

@@ -148,4 +148,8 @@ source "drivers/staging/dgnc/Kconfig"
 
 source "drivers/staging/dgap/Kconfig"
 
+source "drivers/staging/virmouse/Kconfig"
+
+source "drivers/staging/cdv/Kconfig"
+
 endif # STAGING

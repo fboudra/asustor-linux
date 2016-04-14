@@ -62,6 +62,12 @@ extern void x86_ce4100_early_setup(void);
 static inline void x86_ce4100_early_setup(void) { }
 #endif
 
+#ifdef CONFIG_X86_CEDARVIEW
+extern void x86_cedarview_early_setup(void); 
+#else
+static inline void x86_cedarview_early_setup() { } 
+#endif
+
 #ifndef _SETUP
 
 /*

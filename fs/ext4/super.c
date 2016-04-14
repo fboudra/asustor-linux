@@ -1393,13 +1393,6 @@ static const struct mount_opts {
 	 MOPT_NO_EXT2 | MOPT_DATAJ},
 	{Opt_user_xattr, EXT4_MOUNT_XATTR_USER, MOPT_SET},
 	{Opt_nouser_xattr, EXT4_MOUNT_XATTR_USER, MOPT_CLEAR},
-#ifdef CONFIG_EXT4_FS_POSIX_ACL
-	{Opt_acl, EXT4_MOUNT_POSIX_ACL, MOPT_SET},
-	{Opt_noacl, EXT4_MOUNT_POSIX_ACL, MOPT_CLEAR},
-#else
-	{Opt_acl, 0, MOPT_NOSUPPORT},
-	{Opt_noacl, 0, MOPT_NOSUPPORT},
-#endif
 	{Opt_nouid32, EXT4_MOUNT_NO_UID32, MOPT_SET},
 	{Opt_debug, EXT4_MOUNT_DEBUG, MOPT_SET},
 	{Opt_quota, EXT4_MOUNT_QUOTA | EXT4_MOUNT_USRQUOTA, MOPT_SET | MOPT_Q},
@@ -1457,7 +1450,7 @@ static int handle_mount_opt(struct super_block *sb, char *opt, int token,
 		sb->s_flags |= MS_I_VERSION;
 		return 1;
 	}
-
+	
 	for (m = ext4_mount_opts; m->token != Opt_err; m++)
 		if (token == m->token)
 			break;
@@ -2826,11 +2819,13 @@ static int ext4_run_li_request(struct ext4_li_request *elr)
 		timeout = jiffies;
 		ret = ext4_init_inode_table(sb, group,
 					    elr->lr_timeout ? 0 : 1);
+
 		if (elr->lr_timeout == 0) {
 			timeout = (jiffies - timeout) *
 				  elr->lr_sbi->s_li_wait_mult;
 			elr->lr_timeout = timeout;
 		}
+
 		elr->lr_next_sched = jiffies + elr->lr_timeout;
 		elr->lr_next_group = group + 1;
 	}
@@ -3463,9 +3458,11 @@ static int ext4_fill_super(struct super_block *sb, void *data, int silent)
 		set_opt(sb, NO_UID32);
 	/* xattr user namespace & acls are now defaulted on */
 	set_opt(sb, XATTR_USER);
+
 #ifdef CONFIG_EXT4_FS_POSIX_ACL
 	set_opt(sb, POSIX_ACL);
 #endif
+
 	if ((def_mount_opts & EXT4_DEFM_JMODE) == EXT4_DEFM_JMODE_DATA)
 		set_opt(sb, JOURNAL_DATA);
 	else if ((def_mount_opts & EXT4_DEFM_JMODE) == EXT4_DEFM_JMODE_ORDERED)
@@ -3535,9 +3532,6 @@ static int ext4_fill_super(struct super_block *sb, void *data, int silent)
 		if (test_opt(sb, DELALLOC))
 			clear_opt(sb, DELALLOC);
 	}
-
-	sb->s_flags = (sb->s_flags & ~MS_POSIXACL) |
-		(test_opt(sb, POSIX_ACL) ? MS_POSIXACL : 0);
 
 	if (le32_to_cpu(es->s_rev_level) == EXT4_GOOD_OLD_REV &&
 	    (EXT4_HAS_COMPAT_FEATURE(sb, ~0U) ||
@@ -4784,10 +4778,7 @@ static int ext4_remount(struct super_block *sb, int *flags, char *data)
 
 	if (sbi->s_mount_flags & EXT4_MF_FS_ABORTED)
 		ext4_abort(sb, "Abort forced by user");
-
-	sb->s_flags = (sb->s_flags & ~MS_POSIXACL) |
-		(test_opt(sb, POSIX_ACL) ? MS_POSIXACL : 0);
-
+		
 	es = sbi->s_es;
 
 	if (sbi->s_journal) {

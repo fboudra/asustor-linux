@@ -15,6 +15,37 @@
 #include <linux/security.h>
 #include <linux/evm.h>
 #include <linux/ima.h>
+#ifdef ASUSTOR_PATCH_ASACL
+/* Patch purpose: ASACL */
+#include <linux/asacl.h>
+
+/** \brief To check if the requested change is permitted by ASACL.
+ *
+ * \return It returns 0 if the requested change is permitted, or returns a negative value if encountering an error.
+ */
+static int Check_Permission_On_Asacl(struct inode *ptInode, int mMask)
+{
+	return 0;
+}
+
+/** \brief To check if we are allowed to change file owner.
+ *
+ * \return It returns 'true' if we are allowed to change, or returns 'false' if it is not allowed.
+ */
+static bool If_Allow_To_Change_Owner(struct inode *ptInode, kuid_t tNewUid)
+{
+	return true;
+}
+
+/** \brief To check if we are allowed to changed file owned group.
+ *
+ * \return It returns 'true' if we are allowed to change, or returns 'false' if it is not allowed.
+ */
+static bool If_Allow_To_Change_Owned_Group(struct inode *ptInode, kgid_t tNewGid)
+{
+	return true;
+}
+#endif /* ASUSTOR_PATCH_ASACL */
 
 /**
  * inode_change_ok - check if attribute changes to an inode are allowed
@@ -28,9 +59,17 @@
  * Should be called as the first thing in ->setattr implementations,
  * possibly after taking additional locks.
  */
+#ifdef ASUSTOR_PATCH_ASACL
+/* Patch purpose: ASACL */
+int inode_change_ok(struct inode *inode, struct iattr *attr)
+#else /* ASUSTOR_PATCH_ASACL */
 int inode_change_ok(const struct inode *inode, struct iattr *attr)
+#endif /* ASUSTOR_PATCH_ASACL */
 {
 	unsigned int ia_valid = attr->ia_valid;
+#ifdef ASUSTOR_PATCH_ASACL
+	int  iRet;
+#endif /* ASUSTOR_PATCH_ASACL */
 
 	/*
 	 * First check size constraints.  These can't be overriden using
@@ -46,6 +85,19 @@ int inode_change_ok(const struct inode *inode, struct iattr *attr)
 	if (ia_valid & ATTR_FORCE)
 		return 0;
 
+#ifdef ASUSTOR_PATCH_ASACL
+	/* Patch purpose: ASACL */
+
+	/* Make sure a caller can chown. */
+	if ((ia_valid & ATTR_UID) && !If_Allow_To_Change_Owner(inode, attr->ia_uid))
+		return -EPERM;
+
+	/* Make sure caller can chgrp. */
+	if ((ia_valid & ATTR_GID) && !If_Allow_To_Change_Owned_Group(inode, attr->ia_gid))
+		return -EPERM;
+
+#else /* ASUSTOR_PATCH_ASACL */
+
 	/* Make sure a caller can chown. */
 	if ((ia_valid & ATTR_UID) &&
 	    (!uid_eq(current_fsuid(), inode->i_uid) ||
@@ -60,10 +112,25 @@ int inode_change_ok(const struct inode *inode, struct iattr *attr)
 	    !inode_capable(inode, CAP_CHOWN))
 		return -EPERM;
 
+#endif /* ASUSTOR_PATCH_ASACL */
+
 	/* Make sure a caller can chmod. */
 	if (ia_valid & ATTR_MODE) {
+#ifdef ASUSTOR_PATCH_ASACL
+		/* Patch purpose: ASACL */
+		if (-EAGAIN == (iRet = Check_Permission_On_Asacl(inode, MAY_CHMOD)))
+		{
+			// If this file does not support ASACL permission check, use the origin POSIX rule.
+			if (!inode_owner_or_capable(inode))
+				return -EPERM;
+		}
+		else if (0 != iRet)  return -EPERM;
+
+#else /* ASUSTOR_PATCH_ASACL */
 		if (!inode_owner_or_capable(inode))
 			return -EPERM;
+#endif /* ASUSTOR_PATCH_ASACL */
+
 		/* Also check the setgid bit! */
 		if (!in_group_p((ia_valid & ATTR_GID) ? attr->ia_gid :
 				inode->i_gid) &&
@@ -73,8 +140,20 @@ int inode_change_ok(const struct inode *inode, struct iattr *attr)
 
 	/* Check for setting the inode time. */
 	if (ia_valid & (ATTR_MTIME_SET | ATTR_ATIME_SET | ATTR_TIMES_SET)) {
+#ifdef ASUSTOR_PATCH_ASACL
+		/* Patch purpose: ASACL */
+		if (-EAGAIN == (iRet = Check_Permission_On_Asacl(inode, MAY_SET_TIMES)))
+		{
+			// If this file does not support ASACL permission check, use the origin POSIX rule.
+			if (!inode_owner_or_capable(inode))
+				return -EPERM;
+		}
+		else if (0 != iRet)  return -EPERM;
+
+#else /* ASUSTOR_PATCH_ASACL */
 		if (!inode_owner_or_capable(inode))
 			return -EPERM;
+#endif /* ASUSTOR_PATCH_ASACL */
 	}
 
 	return 0;

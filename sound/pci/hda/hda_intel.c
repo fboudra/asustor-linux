@@ -320,11 +320,12 @@ enum { SDI0, SDI1, SDI2, SDI3, SDO0, SDO1, SDO2, SDO3 };
 #define RIRB_INT_OVERRUN	0x04
 #define RIRB_INT_MASK		0x05
 
+#ifndef ASUSTOR_PATCH
 /* STATESTS int mask: S3,SD2,SD1,SD0 */
 #define AZX_MAX_CODECS		8
 #define AZX_DEFAULT_CODECS	4
 #define STATESTS_INT_MASK	((1 << AZX_MAX_CODECS) - 1)
-
+#endif
 /* SD_CTL bits */
 #define SD_CTL_STREAM_RESET	0x01	/* stream reset bit */
 #define SD_CTL_DMA_START	0x02	/* stream DMA start bit */
@@ -385,6 +386,7 @@ enum {
 /* HD Audio class code */
 #define PCI_CLASS_MULTIMEDIA_HD_AUDIO	0x0403
 
+#ifndef ASUSTOR_PATCH
 /*
  */
 
@@ -435,7 +437,7 @@ struct azx_dev {
 	struct mutex dsp_mutex;
 #endif
 };
-
+#endif
 /* DSP lock helpers */
 #ifdef CONFIG_SND_HDA_DSP_LOADER
 #define dsp_lock_init(dev)	mutex_init(&(dev)->dsp_mutex)
@@ -449,6 +451,7 @@ struct azx_dev {
 #define dsp_is_locked(dev)	0
 #endif
 
+#ifndef ASUSTOR_PATCH
 /* CORB/RIRB */
 struct azx_rb {
 	u32 *buf;		/* CORB/RIRB buffer
@@ -560,6 +563,7 @@ struct azx {
 	/* secondary power domain for hdmi audio under vga device */
 	struct dev_pm_domain hdmi_pm_domain;
 };
+#endif
 
 #define CREATE_TRACE_POINTS
 #include "hda_intel_trace.h"
@@ -663,6 +667,7 @@ static char *driver_short_names[] = {
 	[AZX_DRIVER_GENERIC] = "HD-Audio Generic",
 };
 
+#ifndef ASUSTOR_PATCH
 /*
  * macros for easy use
  */
@@ -691,6 +696,7 @@ static char *driver_short_names[] = {
 	writeb(value, (dev)->sd_addr + ICH6_REG_##reg)
 #define azx_sd_readb(dev,reg) \
 	readb((dev)->sd_addr + ICH6_REG_##reg)
+#endif
 
 /* for pcm support */
 #define get_azx_dev(substream) (substream->runtime->private_data)
@@ -2950,9 +2956,15 @@ static int azx_resume(struct device *dev)
 
 	if (chip->disabled)
 		return 0;
-
+#ifdef ASUSTOR_PATCH
+	if (chip->driver_caps & AZX_DCAPS_I915_POWERWELL){
+		hda_display_power(true);
+		haswell_set_bclk(chip);
+	}
+#else
 	if (chip->driver_caps & AZX_DCAPS_I915_POWERWELL)
 		hda_display_power(true);
+#endif
 	pci_set_power_state(pci, PCI_D0);
 	pci_restore_state(pci);
 	if (pci_enable_device(pci) < 0) {
@@ -3014,10 +3026,15 @@ static int azx_runtime_resume(struct device *dev)
 
 	if (!(chip->driver_caps & AZX_DCAPS_PM_RUNTIME))
 		return 0;
-
+#ifdef ASUSTOR_PATCH
+	if (chip->driver_caps & AZX_DCAPS_I915_POWERWELL){
+		hda_display_power(true);
+		haswell_set_bclk(chip);
+	}
+#else
 	if (chip->driver_caps & AZX_DCAPS_I915_POWERWELL)
 		hda_display_power(true);
-
+#endif
 	/* Read STATESTS before controller reset */
 	status = azx_readw(chip, STATESTS);
 
@@ -3745,7 +3762,10 @@ static int azx_first_init(struct azx *chip)
 	/* initialize chip */
 	azx_init_pci(chip);
 	azx_init_chip(chip, (probe_only[dev] & 2) == 0);
-
+#ifdef ASUSTOR_PATCH
+	if (chip->driver_caps & AZX_DCAPS_I915_POWERWELL)
+		haswell_set_bclk(chip);
+#endif
 	/* codec detection */
 	if (!chip->codec_mask) {
 		snd_printk(KERN_ERR SFX "%s: no codecs found!\n", pci_name(chip->pci));

@@ -480,6 +480,9 @@ struct r5conf {
 	struct r5worker_group	*worker_groups;
 	int			group_cnt;
 	int			worker_cnt_per_group;
+#ifdef ASUSTOR_PATCH
+	int			revalidate_flag;
+#endif
 };
 
 /*

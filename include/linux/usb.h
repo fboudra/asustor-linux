@@ -559,7 +559,9 @@ struct usb_device {
 	char *serial;
 
 	struct list_head filelist;
-
+#ifdef CONFIG_USB_DEVICE_CLASS
+    struct device *usb_classdev;
+#endif
 	int maxchild;
 
 	u32 quirks;
@@ -581,6 +583,9 @@ struct usb_device {
 	struct usb3_lpm_parameters u1_params;
 	struct usb3_lpm_parameters u2_params;
 	unsigned lpm_disable_count;
+#ifdef ASUSTOR_PATCH
+	atomic_t as_lock;	/* usb device lock */
+#endif
 };
 #define	to_usb_device(d) container_of(d, struct usb_device, dev)
 

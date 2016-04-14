@@ -88,7 +88,11 @@ static inline void hpet_clear_mapping(void)
 /*
  * HPET command line enable / disable
  */
+#ifdef ASUSTOR_PATCH
+int boot_hpet_disable;
+#else
 static int boot_hpet_disable;
+#endif
 int hpet_force_user;
 static int hpet_verbose;
 

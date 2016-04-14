@@ -1180,6 +1180,8 @@ static struct usb_device_id rt2800usb_device_table[] = {
 	/* Linksys */
 	{ USB_DEVICE(0x13b1, 0x002f) },
 	{ USB_DEVICE(0x1737, 0x0079) },
+	/* Logitec */
+	{ USB_DEVICE(0x0789, 0x0170) },
 	/* Ralink */
 	{ USB_DEVICE(0x148f, 0x3572) },
 	/* Sitecom */
@@ -1240,6 +1242,9 @@ static struct usb_device_id rt2800usb_device_table[] = {
 	{ USB_DEVICE(0x2001, 0x3c1c) },
 	{ USB_DEVICE(0x2001, 0x3c1d) },
 	{ USB_DEVICE(0x2001, 0x3c1e) },
+	{ USB_DEVICE(0x2001, 0x3c20) },
+	{ USB_DEVICE(0x2001, 0x3c22) },
+	{ USB_DEVICE(0x2001, 0x3c23) },
 	/* LG innotek */
 	{ USB_DEVICE(0x043e, 0x7a22) },
 	{ USB_DEVICE(0x043e, 0x7a42) },

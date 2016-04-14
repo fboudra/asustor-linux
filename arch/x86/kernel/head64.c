@@ -190,5 +190,18 @@ void __init x86_64_start_reservations(char *real_mode_data)
 
 	reserve_ebda_region();
 
+#ifdef CONFIG_X86_CEDARVIEW
+	/* 
+	 * The BIOS is unable to identify the Cedarview chipset therefore
+	 * the kernel config option for the Cedarview platform specific code.
+	 */
+
+	x86_cedarview_early_setup();
+#endif
+	/*
+	 * At this point everything still needed from the boot loader
+	 * or BIOS or kernel text should be early reserved or marked not
+	 * RAM in e820. All other memory is free game.
+	 */
 	start_kernel();
 }

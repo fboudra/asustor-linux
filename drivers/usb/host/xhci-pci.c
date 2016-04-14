@@ -134,8 +134,12 @@ static void xhci_pci_quirks(struct device *dev, struct xhci_hcd *xhci)
 		 */
 		if (pdev->subsystem_vendor == PCI_VENDOR_ID_HP)
 			xhci->quirks |= XHCI_SPURIOUS_WAKEUP;
-
+			
+#ifdef ASUSTOR_PATCH
+		//some machaine will restart after poweroff
 		xhci->quirks |= XHCI_SPURIOUS_REBOOT;
+		xhci->quirks |= XHCI_SPURIOUS_WAKEUP;
+#endif		
 	}
 	if (pdev->vendor == PCI_VENDOR_ID_ETRON &&
 			pdev->device == PCI_DEVICE_ID_ASROCK_P67) {

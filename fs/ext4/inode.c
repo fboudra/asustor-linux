@@ -44,7 +44,6 @@
 #include "xattr.h"
 #include "acl.h"
 #include "truncate.h"
-
 #include <trace/events/ext4.h>
 
 #define MPAGE_DA_EXTENT_TAIL 0x01
@@ -2697,6 +2696,7 @@ retry_journal:
 		 * outside i_size.  Trim these off again. Don't need
 		 * i_size_read because we hold i_mutex.
 		 */
+
 		if (pos + len > inode->i_size)
 			ext4_truncate_failed_write(inode);
 

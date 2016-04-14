@@ -34,6 +34,10 @@
 #include <linux/device_cgroup.h>
 #include <linux/fs_struct.h>
 #include <linux/posix_acl.h>
+#ifdef ASUSTOR_PATCH_ASACL
+/* Patch purpose: ASACL */
+#include <linux/asacl.h>
+#endif /* ASUSTOR_PATCH_ASACL */
 #include <asm/uaccess.h>
 
 #include "internal.h"
@@ -220,7 +224,12 @@ void putname(struct filename *name)
 }
 #endif
 
+#ifdef ASUSTOR_PATCH_ASACL
+/* Patch purpose: ASACL */
+static int check_posix_acl(struct inode *inode, int mask)
+#else /* ASUSTOR_PATCH_ASACL */
 static int check_acl(struct inode *inode, int mask)
+#endif /* ASUSTOR_PATCH_ASACL */
 {
 #ifdef CONFIG_FS_POSIX_ACL
 	struct posix_acl *acl;
@@ -265,6 +274,20 @@ static int check_acl(struct inode *inode, int mask)
 
 	return -EAGAIN;
 }
+
+#ifdef ASUSTOR_PATCH_ASACL
+/* Patch purpose: ASACL */
+
+// Create a new "check_acl" function that will support POSIX acl or ASACL depends on the situation.
+int check_acl(struct inode *inode, int mask)
+{
+	if (IS_POSIXACL(inode))
+		return check_posix_acl(inode, mask);
+	else
+		return -EAGAIN;
+}
+EXPORT_SYMBOL(check_acl);
+#endif /* ASUSTOR_PATCH_ASACL */
 
 /*
  * This does the basic permission checking
@@ -2437,6 +2460,7 @@ static int may_delete(struct inode *dir,struct dentry *victim,int isdir)
 	audit_inode_child(dir, victim, AUDIT_TYPE_CHILD_DELETE);
 
 	error = inode_permission(dir, MAY_WRITE | MAY_EXEC);
+
 	if (error)
 		return error;
 	if (IS_APPEND(dir))
@@ -2466,6 +2490,7 @@ static int may_delete(struct inode *dir,struct dentry *victim,int isdir)
  *  3. We should have write and exec permissions on dir
  *  4. We can't do it if dir is immutable (done in permission())
  */
+
 static inline int may_create(struct inode *dir, struct dentry *child)
 {
 	audit_inode_child(dir, child, AUDIT_TYPE_CHILD_CREATE);
@@ -2522,6 +2547,7 @@ int vfs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
 		bool want_excl)
 {
 	int error = may_create(dir, dentry);
+
 	if (error)
 		return error;
 
@@ -2669,6 +2695,7 @@ static int atomic_open(struct nameidata *nd, struct dentry *dentry,
 	}
 
 	mode = op->mode;
+
 	if ((open_flag & O_CREAT) && !IS_POSIXACL(dir))
 		mode &= ~current_umask();
 
@@ -2853,8 +2880,10 @@ static int lookup_open(struct nameidata *nd, struct path *path,
 	/* Negative dentry, just create the file */
 	if (!dentry->d_inode && (op->open_flag & O_CREAT)) {
 		umode_t mode = op->mode;
+
 		if (!IS_POSIXACL(dir->d_inode))
 			mode &= ~current_umask();
+
 		/*
 		 * This write is needed to ensure that a
 		 * rw->ro transition does not occur between
@@ -3441,6 +3470,7 @@ retry:
 
 	if (!IS_POSIXACL(path.dentry->d_inode))
 		mode &= ~current_umask();
+
 	error = security_path_mknod(&path, dentry, mode, dev);
 	if (error)
 		goto out;
@@ -3473,6 +3503,7 @@ SYSCALL_DEFINE3(mknod, const char __user *, filename, umode_t, mode, unsigned, d
 int vfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 {
 	int error = may_create(dir, dentry);
+
 	unsigned max_links = dir->i_sb->s_max_links;
 
 	if (error)
@@ -3509,6 +3540,7 @@ retry:
 
 	if (!IS_POSIXACL(path.dentry->d_inode))
 		mode &= ~current_umask();
+
 	error = security_path_mkdir(&path, dentry, mode);
 	if (!error)
 		error = vfs_mkdir(path.dentry->d_inode, dentry, mode);
@@ -3686,7 +3718,11 @@ int vfs_unlink(struct inode *dir, struct dentry *dentry)
  * writeout happening, and we don't want to prevent access to the directory
  * while waiting on the I/O.
  */
+#ifdef ASUSTOR_PATCH
+long do_unlinkat(int dfd, const char __user *pathname)
+#else
 static long do_unlinkat(int dfd, const char __user *pathname)
+#endif
 {
 	int error;
 	struct filename *name;
@@ -3745,6 +3781,9 @@ slashes:
 		S_ISDIR(dentry->d_inode->i_mode) ? -EISDIR : -ENOTDIR;
 	goto exit2;
 }
+#ifdef ASUSTOR_PATCH
+EXPORT_SYMBOL(do_unlinkat);
+#endif
 
 SYSCALL_DEFINE3(unlinkat, int, dfd, const char __user *, pathname, int, flag)
 {
@@ -3828,6 +3867,7 @@ int vfs_link(struct dentry *old_dentry, struct inode *dir, struct dentry *new_de
 		return -ENOENT;
 
 	error = may_create(dir, new_dentry);
+
 	if (error)
 		return error;
 
@@ -4064,13 +4104,18 @@ int vfs_rename(struct inode *old_dir, struct dentry *old_dentry,
  		return 0;
  
 	error = may_delete(old_dir, old_dentry, is_dir);
+
 	if (error)
 		return error;
 
 	if (!new_dentry->d_inode)
+	{
 		error = may_create(new_dir, new_dentry);
+	}
 	else
+	{
 		error = may_delete(new_dir, new_dentry, is_dir);
+	}
 	if (error)
 		return error;
 

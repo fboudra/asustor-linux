@@ -71,7 +71,9 @@ extern int hpet_enable(void);
 extern void hpet_disable(void);
 extern unsigned int hpet_readl(unsigned int a);
 extern void force_hpet_resume(void);
-
+#ifdef ASUSTOR_PATCH
+extern int boot_hpet_disable;
+#endif
 struct irq_data;
 extern void hpet_msi_unmask(struct irq_data *data);
 extern void hpet_msi_mask(struct irq_data *data);

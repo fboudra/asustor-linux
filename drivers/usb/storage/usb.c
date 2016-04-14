@@ -1082,7 +1082,7 @@ static struct usb_driver usb_storage_driver = {
 	.post_reset =	usb_stor_post_reset,
 	.id_table =	usb_storage_usb_ids,
 	.supports_autosuspend = 1,
-	.soft_unbind =	1,
+	.soft_unbind =	0,
 };
 
 module_usb_driver(usb_storage_driver);

@@ -49,6 +49,9 @@ endif # BLOCK
 #
 config FS_POSIX_ACL
 	def_bool n
+	
+config FS_ASACL
+	def_bool n
 
 config EXPORTFS
 	tristate
@@ -212,6 +215,7 @@ source "fs/ufs/Kconfig"
 source "fs/exofs/Kconfig"
 source "fs/f2fs/Kconfig"
 source "fs/efivarfs/Kconfig"
+source "fs/aufs/Kconfig"
 
 endif # MISC_FILESYSTEMS
 

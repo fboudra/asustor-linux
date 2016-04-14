@@ -9053,7 +9053,6 @@ static int tg3_chip_reset(struct tg3 *tp)
 		 */
 		if (!tg3_flag(tp, CPMU_PRESENT))
 			val16 |= PCI_EXP_DEVCTL_PAYLOAD;
-		pcie_capability_clear_word(tp->pdev, PCI_EXP_DEVCTL, val16);
 
 		/* Clear error status */
 		pcie_capability_write_word(tp->pdev, PCI_EXP_DEVSTA,
