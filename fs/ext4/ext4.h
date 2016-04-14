@@ -1885,7 +1885,11 @@ ext4_group_first_block_no(struct super_block *sb, ext4_group_t group_no)
 /*
  * Timeout and state flag for lazy initialization inode thread.
  */
+#ifdef ASUSTOR_PATCH
+#define EXT4_DEF_LI_WAIT_MULT			1
+#else
 #define EXT4_DEF_LI_WAIT_MULT			10
+#endif
 #define EXT4_DEF_LI_MAX_START_DELAY		5
 #define EXT4_LAZYINIT_QUIT			0x0001
 #define EXT4_LAZYINIT_RUNNING			0x0002
@@ -2342,6 +2346,10 @@ extern int ext4_group_extend(struct super_block *sb,
 extern int ext4_resize_fs(struct super_block *sb, ext4_fsblk_t n_blocks_count);
 
 /* super.c */
+#ifdef ASUSTOR_PATCH
+extern unsigned int ext4_uninit_itable_check(struct super_block *sb);
+extern int ext4_register_li_thread(struct super_block *sb);
+#endif
 extern int ext4_calculate_overhead(struct super_block *sb);
 extern void ext4_superblock_csum_set(struct super_block *sb);
 extern void *ext4_kvmalloc(size_t size, gfp_t flags);

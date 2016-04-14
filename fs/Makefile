@@ -47,6 +47,8 @@ obj-$(CONFIG_COREDUMP)		+= coredump.o
 obj-$(CONFIG_SYSCTL)		+= drop_caches.o
 
 obj-$(CONFIG_FHANDLE)		+= fhandle.o
+# Patch purpose: ASACL.
+obj-$(CONFIG_FS_ASACL)		+= asacl.o
 
 obj-y				+= quota/
 
@@ -127,3 +129,4 @@ obj-y				+= exofs/ # Multiple modules
 obj-$(CONFIG_CEPH_FS)		+= ceph/
 obj-$(CONFIG_PSTORE)		+= pstore/
 obj-$(CONFIG_EFIVAR_FS)		+= efivarfs/
+obj-$(CONFIG_AUFS_FS)           += aufs/

@@ -1171,7 +1171,9 @@ static int i801_probe(struct pci_dev *dev, const struct pci_device_id *id)
 	case PCI_DEVICE_ID_INTEL_82801AA_3:
 		break;
 	}
-
+#ifdef ASUSTOR_PATCH
+	priv->features &= ~FEATURE_IRQ;
+#endif
 	/* Disable features on user request */
 	for (i = 0; i < ARRAY_SIZE(i801_feature_names); i++) {
 		if (priv->features & disable_features & (1 << i))
@@ -1182,9 +1184,17 @@ static int i801_probe(struct pci_dev *dev, const struct pci_device_id *id)
 
 	err = pcim_enable_device(dev);
 	if (err) {
+#ifdef ASUSTOR_PATCH
+		if(dev->device == PCI_DEVICE_ID_INTEL_LYNXPOINT_SMBUS){
+			err = 0;
+		}else{
+#endif
 		dev_err(&dev->dev, "Failed to enable SMBus PCI device (%d)\n",
 			err);
 		return err;
+#ifdef ASUSTOR_PATCH
+		}
+#endif
 	}
 	pcim_pin_device(dev);
 

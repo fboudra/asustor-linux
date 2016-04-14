@@ -139,8 +139,13 @@ fail:
  *
  * inode->i_mutex: don't care
  */
+#ifdef ASUSTOR_PATCH_ASACL
+/* Patch purpose: ASACL */
+struct posix_acl *ext4_get_posix_acl(struct inode *inode, int type)
+#else /* ASUSTOR_PATCH_ASACL */
 struct posix_acl *
 ext4_get_acl(struct inode *inode, int type)
+#endif /* ASUSTOR_PATCH_ASACL */
 {
 	int name_index;
 	char *value = NULL;

@@ -3,6 +3,7 @@ PATCHLEVEL = 1
 SUBLEVEL = 0
 EXTRAVERSION =
 NAME = Hurr durr I'ma sheep
+ASUSTOR = "asustor"
 
 # *DOCUMENTATION*
 # To see a list of typical targets execute "make help"
@@ -395,7 +396,7 @@ LINUXINCLUDE    := \
 		-Iinclude \
 		$(USERINCLUDE)
 
-KBUILD_CPPFLAGS := -D__KERNEL__
+KBUILD_CPPFLAGS := -D__KERNEL__ -DASUSTOR_PATCH -DASUSTOR_PATCH_NOGPL -DASUSTOR_PATCH_ASACL
 
 KBUILD_CFLAGS   := -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
 		   -fno-strict-aliasing -fno-common \

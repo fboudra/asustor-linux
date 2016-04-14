@@ -200,6 +200,9 @@ struct gendisk {
 	struct blk_integrity *integrity;
 #endif
 	int node_id;
+#ifdef ASUSTOR_PATCH
+	atomic_t bdevget_cnt;
+#endif
 };
 
 static inline struct gendisk *part_to_disk(struct hd_struct *part)

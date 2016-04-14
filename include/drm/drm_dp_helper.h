@@ -420,7 +420,7 @@
 
 #define DP_TEST_SINK_MISC		    0x246
 # define DP_TEST_CRC_SUPPORTED		    (1 << 5)
-# define DP_TEST_COUNT_MASK		    0x7
+# define DP_TEST_COUNT_MASK		    0xf
 
 #define DP_TEST_RESPONSE		    0x260
 # define DP_TEST_ACK			    (1 << 0)
@@ -633,6 +633,13 @@ drm_dp_enhanced_frame_cap(const u8 dpcd[DP_RECEIVER_CAP_SIZE])
 		(dpcd[DP_MAX_LANE_COUNT] & DP_ENHANCED_FRAME_CAP);
 }
 
+static inline bool
+drm_dp_tps3_supported(const u8 dpcd[DP_RECEIVER_CAP_SIZE])
+{
+	return dpcd[DP_DPCD_REV] >= 0x12 &&
+		dpcd[DP_MAX_LANE_COUNT] & DP_TPS3_SUPPORTED;
+}
+
 /*
  * DisplayPort AUX channel
  */
@@ -679,9 +686,9 @@ struct drm_dp_aux_msg {
  * An AUX channel can also be used to transport I2C messages to a sink. A
  * typical application of that is to access an EDID that's present in the
  * sink device. The .transfer() function can also be used to execute such
- * transactions. The drm_dp_aux_register_i2c_bus() function registers an
- * I2C adapter that can be passed to drm_probe_ddc(). Upon removal, drivers
- * should call drm_dp_aux_unregister_i2c_bus() to remove the I2C adapter.
+ * transactions. The drm_dp_aux_register() function registers an I2C
+ * adapter that can be passed to drm_probe_ddc(). Upon removal, drivers
+ * should call drm_dp_aux_unregister() to remove the I2C adapter.
  * The I2C adapter uses long transfers by default; if a partial response is
  * received, the adapter will drop down to the size given by the partial
  * response for this transaction only.

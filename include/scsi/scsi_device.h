@@ -198,6 +198,9 @@ struct scsi_device {
 	struct scsi_dh_data	*scsi_dh_data;
 	enum scsi_device_state sdev_state;
 	unsigned long		sdev_data[0];
+#ifdef ASUSTOR_PATCH
+	atomic_t as_lock;	/* scsi device lock */
+#endif
 } __attribute__((aligned(sizeof(unsigned long))));
 
 typedef void (*activate_complete)(void *, int);
@@ -444,6 +447,11 @@ extern void scsi_autopm_put_device(struct scsi_device *);
 static inline int scsi_autopm_get_device(struct scsi_device *d) { return 0; }
 static inline void scsi_autopm_put_device(struct scsi_device *d) {}
 #endif /* CONFIG_PM */
+
+#ifdef ASUSTOR_PATCH_NOGPL
+extern int scsi_ioctl_as_get_lock(struct scsi_device *, int __user *);
+extern int scsi_ioctl_as_set_lock(struct scsi_device *, int __user *);
+#endif
 
 static inline int __must_check scsi_device_reprobe(struct scsi_device *sdev)
 {

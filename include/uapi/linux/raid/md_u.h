@@ -55,7 +55,9 @@
 #define SET_DISK_FAULTY		_IO (MD_MAJOR, 0x29)
 #define HOT_GENERATE_ERROR	_IO (MD_MAJOR, 0x2a)
 #define SET_BITMAP_FILE		_IOW (MD_MAJOR, 0x2b, int)
-
+#ifdef ASUSTOR_PATCH
+#define REMOVE_DISK_FAULTY	_IO (MD_MAJOR, 0x2f)
+#endif
 /* usage */
 #define RUN_ARRAY		_IOW (MD_MAJOR, 0x30, mdu_param_t)
 /*  0x31 was START_ARRAY  */

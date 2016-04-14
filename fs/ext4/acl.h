@@ -54,13 +54,23 @@ static inline int ext4_acl_count(size_t size)
 #ifdef CONFIG_EXT4_FS_POSIX_ACL
 
 /* acl.c */
+#ifdef ASUSTOR_PATCH_ASACL
+/* Patch purpose: ASACL */
+struct posix_acl *ext4_get_posix_acl(struct inode *inode, int type);
+#else /* ASUSTOR_PATCH_ASACL */
 struct posix_acl *ext4_get_acl(struct inode *inode, int type);
+#endif /* ASUSTOR_PATCH_ASACL */
 int ext4_set_acl(struct inode *inode, struct posix_acl *acl, int type);
 extern int ext4_init_acl(handle_t *, struct inode *, struct inode *);
 
 #else  /* CONFIG_EXT4_FS_POSIX_ACL */
 #include <linux/sched.h>
+#ifdef ASUSTOR_PATCH_ASACL
+/* Patch purpose: ASACL */
+#define ext4_get_posix_acl NULL
+#else /* ASUSTOR_PATCH_ASACL */
 #define ext4_get_acl NULL
+#endif /* ASUSTOR_PATCH_ASACL */
 #define ext4_set_acl NULL
 
 static inline int

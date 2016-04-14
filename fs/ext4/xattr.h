@@ -23,6 +23,10 @@
 #define EXT4_XATTR_INDEX_SECURITY	        6
 #define EXT4_XATTR_INDEX_SYSTEM			7
 #define EXT4_XATTR_INDEX_RICHACL		8
+#ifdef ASUSTOR_PATCH_ASACL
+/* Patch purpose: ASACL */
+#define EXT4_XATTR_INDEX_ASACL			8
+#endif /* ASUSTOR_PATCH_ASACL */
 #define EXT4_XATTR_INDEX_ENCRYPTION		9
 
 struct ext4_xattr_header {
@@ -98,6 +102,10 @@ struct ext4_xattr_ibody_find {
 extern const struct xattr_handler ext4_xattr_user_handler;
 extern const struct xattr_handler ext4_xattr_trusted_handler;
 extern const struct xattr_handler ext4_xattr_security_handler;
+#ifdef ASUSTOR_PATCH_ASACL
+/* Patch purpose: ASACL */
+extern const struct xattr_handler Ext4_Asacl_Xattr_Handler;
+#endif /* ASUSTOR_PATCH_ASACL */
 
 #define EXT4_XATTR_NAME_ENCRYPTION_CONTEXT "c"
 
